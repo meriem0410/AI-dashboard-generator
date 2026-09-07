@@ -1,0 +1,60 @@
+# =========================
+# Python
+# =========================
+
+__pycache__/
+*.py[cod]
+*.pyo
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Virtual environments
+venv/
+.venv/
+env/
+.env/
+
+# =========================
+# Secrets / credentials
+# =========================
+
+.env.txt
+.env
+*.key
+*.pem
+
+# =========================
+# Generated outputs
+# =========================
+
+Outputs/
+
+# =========================
+# Generated profiling/schema files
+# =========================
+
+profile_output.json
+schema.txt
+
+# =========================
+# Benchmark outputs
+# =========================
+
+benchmark_results.csv
+
+# =========================
+# Local datasets
+# =========================
+
+Logistics/
+
+# =========================
+# Temporary / local files
+# =========================
+
+*.log
+.DS_Store
+Thumbs.db
+
+config.py

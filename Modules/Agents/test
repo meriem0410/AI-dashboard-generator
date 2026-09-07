@@ -1,0 +1,70 @@
+def sql_agent(question, schema):
+
+    # ========================================================
+    # 1. GENERATE + PROCESS SQL
+    # ========================================================
+
+    sql = safe_generate_sql(
+        question,
+        schema,
+        "qwen/qwen3.6-27b"
+    )
+
+    # ========================================================
+    # 2. REJECT IF SQL GENERATION FAILED
+    # ========================================================
+
+    if not sql:
+        return {
+            "success": False,
+            "stage": "generation",
+            "error": "No valid SQL query was generated.",
+            "sql": None,
+            "validation": None,
+            "result": None
+        }
+
+    # ========================================================
+    # 3. VALIDATE AGAINST DATABASE SCHEMA
+    # ========================================================
+
+    validation = validate_query(
+        sql,
+        engine
+    )
+
+    # ========================================================
+    # 4. REJECT IF SCHEMA VALIDATION FAILED
+    # ========================================================
+
+    if not validation["schema_valid"]:
+        return {
+            "success": False,
+            "stage": "schema_validation",
+            "error": validation.get(
+                "schema_errors",
+                ["Schema validation failed."]
+            ),
+            "sql": sql,
+            "validation": validation,
+            "result": None
+        }
+
+    # ========================================================
+    # 5. EXECUTE ONLY VALID SQL
+    # ========================================================
+
+    result = execute_sql(sql)
+
+    # ========================================================
+    # 6. RETURN RESULT
+    # ========================================================
+
+    return {
+        "success": True,
+        "stage": "execution",
+        "error": None,
+        "sql": sql,
+        "validation": validation,
+        "result": result
+    }

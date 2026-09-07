@@ -1,0 +1,88 @@
+{
+    "summary": {
+        "total_tests": 7,
+        "hallucination_rate": 0.0,
+        "group_by_usage": 1.0,
+        "join_usage": 0.0,
+        "aggregation_usage": 1.0
+    },
+    "results": [
+        {
+            "question": "Top 5 customers by revenue",
+            "sql": "SELECT TOP 5 customer_id, SUM(revenue) AS total_revenue\nFROM loads\nGROUP BY customer_id\nORDER BY total_revenue DESC;",
+            "timestamp": "2026-05-13 10:19:09.767737",
+            "has_select": true,
+            "has_group_by": true,
+            "has_join": false,
+            "has_top": true,
+            "has_aggregation": true,
+            "is_invalid": false
+        },
+        {
+            "question": "Top 10 drivers by trips",
+            "sql": "SELECT TOP 10 driver_id, COUNT(trip_id) AS trip_count\nFROM trips\nGROUP BY driver_id\nORDER BY trip_count DESC\n;",
+            "timestamp": "2026-05-13 10:19:41.208577",
+            "has_select": true,
+            "has_group_by": true,
+            "has_join": false,
+            "has_top": true,
+            "has_aggregation": true,
+            "is_invalid": false
+        },
+        {
+            "question": "Average fuel cost by truck",
+            "sql": "SELECT truck_id, AVG(total_cost) AS average_fuel_cost\nFROM fuel_purchases\nGROUP BY truck_id;",
+            "timestamp": "2026-05-13 10:20:44.852648",
+            "has_select": true,
+            "has_group_by": true,
+            "has_join": false,
+            "has_top": false,
+            "has_aggregation": true,
+            "is_invalid": false
+        },
+        {
+            "question": "Maintenance cost over time",
+            "sql": "SELECT DATEPART(year, maintenance_date) AS year,\n       DATEPART(month, maintenance_date) AS month,\n       SUM(total_cost) AS total_maintenance_cost\nFROM maintenance_records\nGROUP BY \nDATEPART(year, maintenance_date),\nDATEPART(month, maintenance_date)\nORDER BY \nDATEPART(year, maintenance_date),\nDATEPART(month, maintenance_date);",
+            "timestamp": "2026-05-13 10:21:22.471321",
+            "has_select": true,
+            "has_group_by": true,
+            "has_join": false,
+            "has_top": false,
+            "has_aggregation": true,
+            "is_invalid": false
+        },
+        {
+            "question": "Revenue by month",
+            "sql": "SELECT MONTH(load_date) AS month, SUM(revenue) AS total_revenue\nFROM loads\nGROUP BY MONTH(load_date)\nORDER BY month;",
+            "timestamp": "2026-05-13 10:21:38.489173",
+            "has_select": true,
+            "has_group_by": true,
+            "has_join": false,
+            "has_top": false,
+            "has_aggregation": true,
+            "is_invalid": false
+        },
+        {
+            "question": "Trips per driver",
+            "sql": "SELECT driver_id, COUNT(trip_id) AS trips_count\nFROM trips\nGROUP BY driver_id;",
+            "timestamp": "2026-05-13 10:22:28.094773",
+            "has_select": true,
+            "has_group_by": true,
+            "has_join": false,
+            "has_top": false,
+            "has_aggregation": true,
+            "is_invalid": false
+        },
+        {
+            "question": "Fuel cost by truck per month",
+            "sql": "SELECT TRUCK_ID, MONTH(purchase_date) AS month, SUM(total_cost) AS total_fuel_cost\nFROM fuel_purchases\nGROUP BY TRUCK_ID, month\nORDER BY TRUCK_ID;",
+            "timestamp": "2026-05-13 10:23:40.371709",
+            "has_select": true,
+            "has_group_by": true,
+            "has_join": false,
+            "has_top": false,
+            "has_aggregation": true,
+            "is_invalid": false
+        }
+    ]
+}
