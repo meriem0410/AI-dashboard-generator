@@ -185,6 +185,7 @@ def generate_sql(question, schema, model):
     response = client.chat.completions.create(
         model=model,
         temperature=0,
+         reasoning_effort="low",
         messages=[
             {
                 "role": "user",
