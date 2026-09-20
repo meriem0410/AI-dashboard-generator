@@ -1,7 +1,6 @@
 import time
 
-from config import engine
-
+from config import engine, GROQ_MODEL
 from Modules.sql_executor import execute_sql
 from Modules.sql_validator import validate_query
 from Modules.sql_generator import (
@@ -25,9 +24,9 @@ def sql_agent(question, schema):
     try:
 
         raw_response = safe_generate_sql(
-            question,
-            schema,
-            "qwen/qwen3.6-27b"
+        question,
+        schema,
+        GROQ_MODEL
         )
 
         generation_time = (
