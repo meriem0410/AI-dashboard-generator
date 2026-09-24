@@ -7,13 +7,13 @@ import pandas as pd
 # ============================================================
 
 def normalize_name(name: str) -> str:
-    """
-    Normalize names for comparison.
-    """
     name = str(name).strip().lower()
 
-    # camelCase -> camel_Case
-    name = re.sub(r"([a-z0-9])([A-Z])", r"\1_\2", name)
+    name = re.sub(
+        r"([a-z0-9])([A-Z])",
+        r"\1_\2",
+        name
+    )
 
     name = re.sub(r"[\s\-]+", "_", name)
     name = re.sub(r"_+", "_", name)
@@ -36,221 +36,118 @@ def tokens(name: str) -> list[str]:
 # ============================================================
 
 def is_fk_like_name(column_name: str) -> bool:
-    """
-    Detect strong FK naming patterns.
-
-    IMPORTANT:
-    This is only a candidate-generation signal.
-    It does NOT prove that a relationship exists.
-    """
 
     column_tokens = tokens(column_name)
 
-    # Strongest common pattern:
-    #
-    # customer_id
-    # truck_id
-    # employee_id
-    #
-    if len(column_tokens) >= 2 and column_tokens[-1] == "id":
+    if (
+        len(column_tokens) >= 2
+        and column_tokens[-1] == "id"
+    ):
         return True
 
-    # Other strong relational conventions:
-    #
-    # customer_key
-    # account_code
-    #
-    # These are weaker than *_id and therefore are handled
-    # conservatively.
-    if len(column_tokens) >= 2 and column_tokens[-1] in {
-        "key",
-        "ref",
-        "reference",
-    }:
+    if (
+        len(column_tokens) >= 2
+        and column_tokens[-1] in {
+            "key",
+            "ref",
+            "reference",
+        }
+    ):
         return True
 
     return False
 
 
 # ============================================================
-# 3. CANDIDATE KEY DETECTION
+# 3. BASIC SERIES STATISTICS
 # ============================================================
 
-def is_candidate_key(series: pd.Series) -> bool:
+def build_series_stats(series: pd.Series) -> dict:
     """
-    A candidate key must be:
-        - non-null
-        - unique
+    Compute expensive statistics ONCE per column.
 
-    This is only a profiling candidate.
-    It does not prove that the database defines it as PK.
+    These values are reused during relationship detection.
     """
 
     clean = series.dropna()
 
     if clean.empty:
-        return False
+        return {
+            "empty": True,
+            "unique_count": 0,
+            "non_null_count": 0,
+            "is_unique": False,
+            "unique_values": set(),
+        }
 
-    return clean.nunique() == len(clean)
+    unique_values = set(clean.unique())
 
+    unique_count = len(unique_values)
+    non_null_count = len(clean)
 
-def candidate_keys(data: dict, profile: dict):
-    """
-    Identify candidate key columns for each table.
-
-    We use the role assigned by role_detector when possible,
-    but also verify uniqueness directly.
-    """
-
-    keys = []
-
-    for table_name, table_profile in profile.items():
-
-        # Skip global relationship entry
-        if table_name == "relationships":
-            continue
-
-        if "columns" not in table_profile:
-            continue
-
-        for column_name, column_profile in table_profile["columns"].items():
-
-            role = column_profile.get("role")
-
-            if role not in {
-                "identifier",
-                "primary_key_candidate",
-            }:
-                continue
-
-            series = data[table_name][column_name]
-
-            if is_candidate_key(series):
-
-                keys.append({
-                    "table": table_name,
-                    "column": column_name,
-                    "unique_ratio": 1.0,
-                })
-
-    return keys
+    return {
+        "empty": False,
+        "unique_count": unique_count,
+        "non_null_count": non_null_count,
+        "is_unique": unique_count == non_null_count,
+        "unique_values": unique_values,
+    }
 
 
 # ============================================================
-# 4. SOURCE FK CANDIDATES
+# 4. TYPE COMPATIBILITY
 # ============================================================
 
-def foreign_key_candidates(data: dict, profile: dict):
+def series_type(series: pd.Series) -> str:
     """
-    Find columns that look like possible foreign keys.
-
-    We DO NOT classify them as FKs yet.
-
-    They must later be validated against another table.
+    Convert pandas dtype into a simple compatibility category.
     """
 
-    candidates = []
+    if pd.api.types.is_numeric_dtype(series):
+        return "numeric"
 
-    for table_name, table_profile in profile.items():
+    if (
+        pd.api.types.is_object_dtype(series)
+        or pd.api.types.is_string_dtype(series)
+    ):
+        return "string"
 
-        if table_name == "relationships":
-            continue
+    if pd.api.types.is_datetime64_any_dtype(series):
+        return "datetime"
 
-        if "columns" not in table_profile:
-            continue
+    if pd.api.types.is_bool_dtype(series):
+        return "boolean"
 
-        for column_name, column_profile in table_profile["columns"].items():
+    return "other"
 
-            if is_fk_like_name(column_name):
-
-                candidates.append({
-                    "table": table_name,
-                    "column": column_name,
-                })
-
-    return candidates
-
-
-# ============================================================
-# 5. VALUE OVERLAP
-# ============================================================
-
-def calculate_overlap(
-    source_series: pd.Series,
-    target_series: pd.Series
-) -> float:
-    """
-    Calculate the proportion of non-null source values that
-    exist in the target column.
-    """
-
-    source_values = set(
-        source_series.dropna().unique()
-    )
-
-    target_values = set(
-        target_series.dropna().unique()
-    )
-
-    if not source_values:
-        return 0.0
-
-    common = source_values.intersection(target_values)
-
-    return len(common) / len(source_values)
-
-
-# ============================================================
-# 6. TYPE COMPATIBILITY
-# ============================================================
 
 def compatible_types(
     source_series: pd.Series,
     target_series: pd.Series
 ) -> bool:
-    """
-    Basic type compatibility check.
 
-    We intentionally don't require exact pandas dtype equality
-    because CSV/Excel/database imports can represent the same
-    identifier differently.
-    """
+    source_type = series_type(source_series)
+    target_type = series_type(target_series)
 
-    source_numeric = pd.api.types.is_numeric_dtype(source_series)
-    target_numeric = pd.api.types.is_numeric_dtype(target_series)
-
-    source_string = (
-        pd.api.types.is_object_dtype(source_series)
-        or pd.api.types.is_string_dtype(source_series)
-    )
-
-    target_string = (
-        pd.api.types.is_object_dtype(target_series)
-        or pd.api.types.is_string_dtype(target_series)
-    )
-
-    if source_numeric and target_numeric:
-        return True
-
-    if source_string and target_string:
-        return True
+    if source_type == target_type:
+        return source_type in {
+            "numeric",
+            "string",
+            "datetime",
+            "boolean",
+        }
 
     return False
 
 
 # ============================================================
-# 7. NAME SIMILARITY
+# 5. NAME SIMILARITY
 # ============================================================
 
 def column_name_similarity(
     source_column: str,
     target_column: str
 ) -> float:
-    """
-    Compare normalized column names.
-
-    Exact name match is a strong signal.
-    """
 
     source = normalize_name(source_column)
     target = normalize_name(target_column)
@@ -264,13 +161,17 @@ def column_name_similarity(
     if not source_tokens or not target_tokens:
         return 0.0
 
-    intersection = source_tokens.intersection(target_tokens)
+    intersection = source_tokens.intersection(
+        target_tokens
+    )
 
-    return len(intersection) / len(source_tokens.union(target_tokens))
+    return len(intersection) / len(
+        source_tokens.union(target_tokens)
+    )
 
 
 # ============================================================
-# 8. TABLE/COLUMN ENTITY MATCH
+# 6. TABLE/COLUMN ENTITY MATCH
 # ============================================================
 
 def table_column_match(
@@ -279,38 +180,131 @@ def table_column_match(
     target_table: str,
     target_column: str
 ) -> float:
-    """
-    Additional semantic signal used to distinguish multiple
-    possible targets.
-
-    Example:
-
-        trips.load_id
-            -> loads.load_id
-
-    should score better than an unrelated table containing
-    a load_id column.
-    """
 
     source_tokens = set(tokens(source_column))
     target_table_tokens = set(tokens(target_table))
-    target_column_tokens = set(tokens(target_column))
 
     score = 0.0
 
-    # Target table name appears in source column
-    if source_tokens.intersection(target_table_tokens):
+    if source_tokens.intersection(
+        target_table_tokens
+    ):
         score += 0.5
 
-    # Exact column name
-    if normalize_name(source_column) == normalize_name(target_column):
+    if normalize_name(source_column) == normalize_name(
+        target_column
+    ):
         score += 0.5
 
     return min(score, 1.0)
 
 
 # ============================================================
-# 9. RELATIONSHIP SCORING
+# 7. CANDIDATE KEYS
+# ============================================================
+
+def candidate_keys(
+    data: dict,
+    profile: dict,
+    stats: dict
+):
+    """
+    Identify candidate keys using statistics already computed.
+    """
+
+    keys = []
+
+    for table_name, table_profile in profile.items():
+
+        if table_name == "relationships":
+            continue
+
+        if "columns" not in table_profile:
+            continue
+
+        for column_name, column_profile in (
+            table_profile["columns"].items()
+        ):
+
+            role = column_profile.get("role")
+
+            if role not in {
+                "identifier",
+                "primary_key_candidate",
+            }:
+                continue
+
+            column_stats = stats[
+                table_name
+            ][column_name]
+
+            if column_stats["is_unique"]:
+
+                keys.append({
+                    "table": table_name,
+                    "column": column_name,
+                    "unique_ratio": 1.0,
+                    "values": column_stats[
+                        "unique_values"
+                    ],
+                    "type": column_stats["type"],
+                })
+
+    return keys
+
+
+# ============================================================
+# 8. FOREIGN KEY CANDIDATES
+# ============================================================
+
+def foreign_key_candidates(
+    data: dict,
+    profile: dict
+):
+
+    candidates = []
+
+    for table_name, table_profile in profile.items():
+
+        if table_name == "relationships":
+            continue
+
+        if "columns" not in table_profile:
+            continue
+
+        for column_name in table_profile["columns"]:
+
+            if is_fk_like_name(column_name):
+
+                candidates.append({
+                    "table": table_name,
+                    "column": column_name,
+                })
+
+    return candidates
+
+
+# ============================================================
+# 9. VALUE OVERLAP
+# ============================================================
+
+def calculate_overlap_from_sets(
+    source_values: set,
+    target_values: set
+) -> float:
+
+    if not source_values:
+        return 0.0
+
+    common = source_values.intersection(
+        target_values
+    )
+
+    return len(common) / len(source_values)
+
+
+# ============================================================
+# 10. RELATIONSHIP SCORE
 # ============================================================
 
 def relationship_score(
@@ -318,29 +312,14 @@ def relationship_score(
     source_column: str,
     target_table: str,
     target_column: str,
-    source_series: pd.Series,
-    target_series: pd.Series
+    source_stats: dict,
+    target_stats: dict,
+    type_match: bool
 ):
-    """
-    Calculate a confidence score from multiple independent
-    signals.
 
-    Signals:
-        - value overlap
-        - type compatibility
-        - column name similarity
-        - table/column semantic match
-        - target uniqueness
-    """
-
-    overlap = calculate_overlap(
-        source_series,
-        target_series
-    )
-
-    type_match = compatible_types(
-        source_series,
-        target_series
+    overlap = calculate_overlap_from_sets(
+        source_stats["unique_values"],
+        target_stats["unique_values"]
     )
 
     name_score = column_name_similarity(
@@ -355,59 +334,82 @@ def relationship_score(
         target_column
     )
 
-    target_unique = is_candidate_key(target_series)
-
-    # --------------------------------------------------------
-    # Weighted confidence
-    # --------------------------------------------------------
+    target_unique = target_stats["is_unique"]
 
     score = 0.0
 
-    # Value overlap is the strongest empirical signal
     score += overlap * 0.55
 
-    # Compatible types
     if type_match:
         score += 0.10
 
-    # Column naming
     score += name_score * 0.15
 
-    # Table/column semantic relationship
     score += semantic_match * 0.10
 
-    # Target uniqueness
     if target_unique:
         score += 0.10
 
     return {
-        "confidence": round(min(score, 1.0), 2),
-        "overlap": round(overlap, 2),
-        "name_similarity": round(name_score, 2),
+        "confidence": round(
+            min(score, 1.0),
+            2
+        ),
+        "overlap": round(
+            overlap,
+            2
+        ),
+        "name_similarity": round(
+            name_score,
+            2
+        ),
         "type_match": type_match,
         "target_unique": target_unique,
     }
 
 
 # ============================================================
-# 10. MAIN RELATIONSHIP DETECTOR
+# 11. MAIN RELATIONSHIP DETECTOR
 # ============================================================
 
-def detect_relationships(data: dict, profile: dict):
-    """
-    Detect cross-table foreign-key relationships.
+def detect_relationships(
+    data: dict,
+    profile: dict
+):
 
-    Process:
+    # --------------------------------------------------------
+    # PRECOMPUTE STATISTICS ONCE
+    # --------------------------------------------------------
 
-        1. Find candidate key columns.
-        2. Find FK-like source columns.
-        3. Compare source values against candidate keys.
-        4. Validate datatype compatibility.
-        5. Score semantic/name compatibility.
-        6. Keep sufficiently strong relationships.
-    """
+    stats = {}
 
-    keys = candidate_keys(data, profile)
+    for table_name, df in data.items():
+
+        stats[table_name] = {}
+
+        for column_name in df.columns:
+
+            column_stats = build_series_stats(
+                df[column_name]
+            )
+
+            column_stats["type"] = series_type(
+                df[column_name]
+            )
+
+            stats[table_name][column_name] = (
+                column_stats
+            )
+
+    # --------------------------------------------------------
+    # CANDIDATES
+    # --------------------------------------------------------
+
+    keys = candidate_keys(
+        data,
+        profile,
+        stats
+    )
 
     fk_candidates = foreign_key_candidates(
         data,
@@ -417,7 +419,7 @@ def detect_relationships(data: dict, profile: dict):
     relationships = []
 
     # --------------------------------------------------------
-    # Compare every FK candidate with every candidate key
+    # RELATIONSHIP SEARCH
     # --------------------------------------------------------
 
     for fk in fk_candidates:
@@ -425,9 +427,15 @@ def detect_relationships(data: dict, profile: dict):
         source_table = fk["table"]
         source_column = fk["column"]
 
-        source_series = data[source_table][source_column]
+        source_stats = stats[
+            source_table
+        ][source_column]
 
-        # Don't compare a column against itself
+        source_type = source_stats["type"]
+
+        if source_stats["empty"]:
+            continue
+
         for key in keys:
 
             target_table = key["table"]
@@ -436,20 +444,48 @@ def detect_relationships(data: dict, profile: dict):
             if source_table == target_table:
                 continue
 
-            target_series = data[target_table][target_column]
+            target_stats = stats[
+                target_table
+            ][target_column]
 
             # ------------------------------------------------
-            # Basic type validation
+            # TYPE FILTER
             # ------------------------------------------------
 
-            if not compatible_types(
-                source_series,
-                target_series
+            if source_type != target_stats["type"]:
+                continue
+
+            # ------------------------------------------------
+            # NAME FILTER
+            # ------------------------------------------------
+            #
+            # Strong name mismatch + no shared entity
+            # = unlikely relationship.
+            #
+            # We still allow exact column matches and
+            # table/column semantic matches.
+            # ------------------------------------------------
+
+            name_score = column_name_similarity(
+                source_column,
+                target_column
+            )
+
+            semantic_score = table_column_match(
+                source_table,
+                source_column,
+                target_table,
+                target_column
+            )
+
+            if (
+                name_score == 0
+                and semantic_score == 0
             ):
                 continue
 
             # ------------------------------------------------
-            # Calculate relationship confidence
+            # OVERLAP
             # ------------------------------------------------
 
             result = relationship_score(
@@ -457,13 +493,10 @@ def detect_relationships(data: dict, profile: dict):
                 source_column,
                 target_table,
                 target_column,
-                source_series,
-                target_series
+                source_stats,
+                target_stats,
+                True
             )
-
-            # ------------------------------------------------
-            # Strong empirical relationship
-            # ------------------------------------------------
 
             if result["overlap"] >= 0.80:
 
@@ -472,13 +505,19 @@ def detect_relationships(data: dict, profile: dict):
                     "from_column": source_column,
                     "to_table": target_table,
                     "to_column": target_column,
-                    "confidence": result["confidence"],
-                    "overlap": result["overlap"],
-                    "name_similarity": result["name_similarity"],
+                    "confidence": result[
+                        "confidence"
+                    ],
+                    "overlap": result[
+                        "overlap"
+                    ],
+                    "name_similarity": result[
+                        "name_similarity"
+                    ],
                 })
 
     # ========================================================
-    # 11. REMOVE DUPLICATE / WEAKER RELATIONSHIPS
+    # REMOVE DUPLICATE / WEAKER RELATIONSHIPS
     # ========================================================
 
     final_relationships = []
@@ -499,7 +538,6 @@ def detect_relationships(data: dict, profile: dict):
 
     for source_key, candidates in grouped.items():
 
-        # Sort strongest first
         candidates.sort(
             key=lambda x: (
                 x["confidence"],
@@ -509,10 +547,6 @@ def detect_relationships(data: dict, profile: dict):
             reverse=True
         )
 
-        # Keep all very strong matches.
-        # If several targets are possible, keep those that
-        # are nearly as strong instead of arbitrarily deleting
-        # legitimate relationships.
         best = candidates[0]
 
         for candidate in candidates:
@@ -520,8 +554,11 @@ def detect_relationships(data: dict, profile: dict):
             if (
                 candidate["confidence"] >= 0.80
                 or
-                candidate["confidence"] >= best["confidence"] - 0.10
+                candidate["confidence"]
+                >= best["confidence"] - 0.10
             ):
-                final_relationships.append(candidate)
+                final_relationships.append(
+                    candidate
+                )
 
     return final_relationships
