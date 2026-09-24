@@ -253,15 +253,32 @@ def is_non_null(series: pd.Series) -> bool:
 # ============================================================
 # 6. DATETIME DETECTION
 # ============================================================
+DATETIME_SAMPLE_SIZE = 1000
 
-def datetime_parse_ratio(series: pd.Series) -> float:
+
+def datetime_parse_ratio(series: pd.Series, sample_size: int = DATETIME_SAMPLE_SIZE) -> float:
+    """
+    Estimate datetime parseability using a sample instead of
+    parsing the entire column.
+    """
+
     clean = series.dropna()
 
     if clean.empty:
         return 0.0
 
+    # Already small enough: parse everything.
+    if len(clean) <= sample_size:
+        sample = clean
+    else:
+        # Fixed deterministic sample for reproducibility.
+        sample = clean.sample(
+            n=sample_size,
+            random_state=42
+        )
+
     parsed = pd.to_datetime(
-        clean,
+        sample,
         errors="coerce",
         utc=True,
         format="mixed"
@@ -269,40 +286,52 @@ def datetime_parse_ratio(series: pd.Series) -> float:
 
     return parsed.notna().mean()
 
+
 def looks_like_datetime(column_name: str, series: pd.Series) -> bool:
     """
-    Detect datetime columns using both semantic naming and
-    actual value parseability.
+    Detect datetime columns efficiently.
 
-    We avoid relying on dtype alone because CSV/Excel data
-    frequently stores dates as strings.
+    Strategy:
+    1. Real pandas datetime dtype -> datetime.
+    2. Strong date-related column name -> sample values.
+    3. Otherwise only sample values to detect unnamed dates.
     """
+
+    # --------------------------------------------------------
+    # Already a real datetime dtype
+    # --------------------------------------------------------
 
     if is_datetime_column(series):
         return True
 
-    if not (pd.api.types.is_object_dtype(series) or
-            pd.api.types.is_string_dtype(series)):
+    # --------------------------------------------------------
+    # Only object/string columns need parsing
+    # --------------------------------------------------------
+
+    if not (
+        pd.api.types.is_object_dtype(series)
+        or pd.api.types.is_string_dtype(series)
+    ):
         return False
 
-    clean = series.dropna()
-
-    if clean.empty:
+    if series.dropna().empty:
         return False
 
-    parse_ratio = datetime_parse_ratio(series)
     has_datetime_name = contains_datetime_token(column_name)
 
-    # Strong semantic name + highly parseable values
+    # --------------------------------------------------------
+    # Sample instead of parsing the whole column
+    # --------------------------------------------------------
+
+    parse_ratio = datetime_parse_ratio(series)
+
+    # Strong date name + highly parseable values
     if has_datetime_name and parse_ratio >= 0.95:
         return True
 
-    # Even without a date-looking name, extremely strong
-    # parseability can indicate a datetime column.
-    #
-    # We use a stricter threshold here to avoid accidentally
-    # classifying ordinary text as dates.
-    if parse_ratio >= 0.99:
+    # No obvious date name:
+    # require extremely strong evidence.
+    if not has_datetime_name and parse_ratio >= 0.99:
         return True
 
     return False
@@ -420,64 +449,59 @@ def classify_text_column(column_name: str, series: pd.Series) -> str:
 # ============================================================
 
 def detect_role(column_name: str, series: pd.Series) -> str:
-    """
-    Determine the intrinsic analytical/semantic role of a column.
-
-    Possible roles:
-        - boolean
-        - datetime
-        - identifier
-        - measure
-        - category
-        - attribute
-
-    PK/FK detection is intentionally NOT performed here.
-    """
 
     # --------------------------------------------------------
-    # Priority 1: Boolean
+    # 1. Boolean
     # --------------------------------------------------------
 
     if is_boolean_column(series):
         return "boolean"
 
     # --------------------------------------------------------
-    # Priority 2: Datetime
+    # 2. Strong identifier semantics
+    # --------------------------------------------------------
+    #
+    # IMPORTANT:
+    # Check this BEFORE datetime detection.
+    #
+    # event_id
+    # load_id
+    # trip_id
+    # fuel_purchase_id
+    # fuel_card_number
+    #
+    # should never go through expensive datetime parsing.
+    # --------------------------------------------------------
+
+    if contains_identifier_token(column_name):
+        return "identifier"
+
+    # --------------------------------------------------------
+    # 3. Datetime
     # --------------------------------------------------------
 
     if looks_like_datetime(column_name, series):
         return "datetime"
 
     # --------------------------------------------------------
-    # Priority 3: Identifier
-    # --------------------------------------------------------
-
-    if is_identifier_like(column_name, series):
-        return "identifier"
-
-    # --------------------------------------------------------
-    # Priority 4: Numeric semantics
+    # 4. Numeric semantics
     # --------------------------------------------------------
 
     if is_numeric_column(series):
 
-        # Explicit year semantics
         if contains_year_token(column_name):
             return "attribute"
 
-        # Value-based year detection
         if looks_like_year(series):
             return "attribute"
 
-        # Explicit measure semantics
         if contains_measure_token(column_name):
             return "measure"
 
-        # Otherwise numeric values are generally measures.
         return "measure"
 
     # --------------------------------------------------------
-    # Priority 5: Text
+    # 5. Text
     # --------------------------------------------------------
 
     return classify_text_column(column_name, series)

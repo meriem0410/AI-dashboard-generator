@@ -1,0 +1,11 @@
+__pycache__
+*.pyc
+.git
+.gitignore
+.venv
+venv
+.env
+.vscode
+*.log
+profile_output.json
+schema.txt

@@ -9,6 +9,7 @@ import json
 from loader import load_data_folder
 
 from Modules.profiler import profile_data
+from Modules.Agents.Agent_data import data_agent
 
 from Modules.schema_builder import (
     build_llm_schema,
@@ -166,7 +167,9 @@ def main():
 
     print("🚀 Loading data...")
 
-    data = load_data_folder("Logistics/")
+    dataset = data_agent("data/Logistics")
+    data = dataset["data"]
+    metadata = dataset["metadata"]
 
     # ========================================================
     # 2. PROFILE DATA
