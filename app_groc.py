@@ -20,7 +20,8 @@ from Modules.Agents.Agent_sql import sql_agent
 
 from Modules.visualisation import (
     choose_visual,
-    build_visual_metadata
+    build_visual_metadata, 
+    render_visual
 )
 
 from Modules.benchmark_utils import (
@@ -302,8 +303,16 @@ def main():
 
     metadata = build_visual_metadata(
         df,
-        visual_type
+        visual_type,
+        question
     )
+
+    fig = render_visual(
+    df,
+    metadata
+    )
+
+    fig.show()
 
     print("\n📈 VISUALIZATION")
     print("-" * 65)
