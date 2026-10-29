@@ -1,9 +1,7 @@
-from config import engine
-from config import client
-# =========================
-# PROMPT
-# =========================
 def build_prompt(schema, question):
+    # Based on the prompt version pasted earlier in the conversation.
+    # Added in this iteration: the three date rules about GETDATE()/coverage,
+    # the "T-SQL STRUCTURE RULES" block, and the highest/lowest mpg example.
     return f"""
 You are a SQL generator.
 
@@ -61,12 +59,30 @@ IMPORTANT:
 - Avoid unnecessary JOINs
 - If multiple tables contain the same column:
   - Prefer the most relevant table
+
 DATE RULES:
 - Use only date columns present in schema
 - Date columns must come from the same table as the metric when possible
 - Prefer:
   load_date, dispatch_date, purchase_date, maintenance_date
-  
+- NEVER filter relative to today's date. Do NOT use GETDATE(), SYSDATETIME(),
+  CURRENT_TIMESTAMP or DATEADD(... GETDATE()) unless the question explicitly
+  asks for "today" or "the last N days/months".
+- The schema starts with DATA COVERAGE: the periods the data really spans.
+  When the question mentions a period, interpret it using that coverage.
+- For questions about a trend or evolution "over time", do NOT add any
+  date filter.
+
+T-SQL STRUCTURE RULES:
+- ORDER BY is allowed only at the very end of the whole statement,
+  or inside a subquery that also uses TOP.
+- To combine results that need TOP / ORDER BY with UNION ALL, wrap each part
+  in a subquery, for example:
+  SELECT a, b FROM (SELECT TOP 1 a, b FROM t ORDER BY b DESC) AS x
+  UNION ALL
+  SELECT a, b FROM (SELECT TOP 1 a, b FROM t ORDER BY b ASC) AS y;
+- Every subquery or derived table must have an alias.
+
 EXAMPLE:
 
 Question: total revenue per customer
@@ -102,6 +118,18 @@ SELECT MONTH(load_date) AS month,
 FROM loads
 GROUP BY MONTH(load_date)
 ORDER BY month;
+
+Question: truck with the highest and the lowest average mpg
+SQL:
+SELECT truck_id, avg_mpg FROM (
+    SELECT TOP 1 truck_id, AVG(average_mpg) AS avg_mpg
+    FROM trips GROUP BY truck_id ORDER BY AVG(average_mpg) DESC
+) AS best
+UNION ALL
+SELECT truck_id, avg_mpg FROM (
+    SELECT TOP 1 truck_id, AVG(average_mpg) AS avg_mpg
+    FROM trips GROUP BY truck_id ORDER BY AVG(average_mpg) ASC
+) AS worst;
 
 SCHEMA:
 {schema}

@@ -1,7 +1,12 @@
+# Pin exact versions once everything runs: pip freeze | findstr /i "streamlit pandas ..."
 streamlit
 pandas
+plotly
 openpyxl
 xlrd
 sqlalchemy
 pyodbc
-groq
+openai
+python-dotenv
+# Keep only if test_groq.py or other code imports the groq SDK:
+# groq
