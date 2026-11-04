@@ -5,21 +5,18 @@ UI-agnostic pipeline. No print(), no input(), no fig.show(), no Streamlit.
 Every function takes plain inputs and returns plain dicts/frames, so the
 Streamlit app, a CLI and future LangGraph nodes can all call them.
 
-Flow:  ingest -> profile -> build_schema -> load_to_database
+Flow:  ingest -> profile -> build_schema -> open_database
        -> answer_question -> make_visual
 """
 
-import os
 import re
 import time
 
 import pandas as pd
-from sqlalchemy import create_engine, inspect, text
-from sqlalchemy.types import NVARCHAR
 
-from config import build_db_url
 from Modules.Agents.Agent_data import data_agent
 from Modules.Agents.Agent_sql import sql_agent
+from Modules.engine_duckdb import Database
 from Modules.profiler import profile_data
 from Modules.schema_builder import build_llm_schema, save_schema
 from Modules.visualisation import (
@@ -34,7 +31,7 @@ except ImportError:
     analyze_sql = None
 
 # Stage vocabulary returned by sql_agent
-STAGES = ("generation", "extraction", "validation",
+STAGES = ("generation", "extraction", "safety", "syntax", "validation",
           "schema_validation", "execution", "completed")
 
 
@@ -47,7 +44,7 @@ def _is_text(series):
 
 
 def _snake(name):
-    """'Load Date' -> 'load_date'; safe as an SQL Server identifier."""
+    """'Load Date' -> 'load_date'; safe as a table or column name."""
     name = re.sub(r"[^0-9a-zA-Z]+", "_", str(name).strip()).strip("_").lower()
     if not name:
         name = "col"
@@ -136,80 +133,24 @@ def build_schema(profile_dict, data=None, save=True):
 
 
 # ------------------------------------------------------------
-# 3. WORKSPACE DATABASE (rebuilt from every upload)
+# 3. QUERY ENGINE (one in-memory DuckDB database per upload)
 # ------------------------------------------------------------
-def _workspace_name():
-    return os.getenv("DB_NAME", "dashboard_workspace")
-
-
-def ensure_database():
-    """Create the workspace database if it does not exist yet."""
-    name = _workspace_name()
-    if not re.fullmatch(r"\w+", name):
-        raise ValueError(f"Unsafe database name: {name}")
-
-    admin = create_engine(build_db_url("master"), isolation_level="AUTOCOMMIT")
-    try:
-        with admin.connect() as conn:
-            conn.execute(
-                text(f"IF DB_ID('{name}') IS NULL CREATE DATABASE [{name}]")
-            )
-    finally:
-        admin.dispose()
-
-
-def reset_workspace(engine):
-    """Drop every table of the previous upload so stale tables can never
-    leak into validation. Refuses to run unless the database name contains
-    'workspace', so it cannot wipe a real database by accident."""
-    name = _workspace_name()
-    if "workspace" not in name.lower():
-        raise RuntimeError(
-            f"Refusing to reset database '{name}': its name must contain "
-            "'workspace'. Set DB_NAME=dashboard_workspace in .env."
-        )
-    tables = inspect(engine).get_table_names()
-    with engine.begin() as conn:
-        for table in tables:
-            conn.execute(text(f"DROP TABLE [{table}]"))
-
-
-def _sql_dtypes(df):
-    """Short strings -> NVARCHAR(255), long ones -> NVARCHAR(max).
-    pandas' default (NVARCHAR(max) everywhere) makes joins on ID columns slow."""
-    dtypes = {}
-    for col in df.columns:
-        if _is_text(df[col]):
-            max_len = df[col].dropna().astype(str).str.len().max()
-            if pd.notna(max_len) and max_len <= 255:
-                dtypes[col] = NVARCHAR(255)
-            else:
-                dtypes[col] = NVARCHAR(None)
-    return dtypes
-
-
-def load_to_database(data, engine):
-    """Rebuild the workspace database from the uploaded tables so that
-    sql_agent can query them. Returns the list of table names written."""
-    ensure_database()
-    reset_workspace(engine)
-
-    written = []
-    for table_name, df in data.items():
-        df.to_sql(table_name, engine, if_exists="replace", index=False,
-                  chunksize=1000, dtype=_sql_dtypes(df))
-        written.append(table_name)
-    return written
+def open_database(data):
+    """Load the uploaded tables ({name: DataFrame}) into a fresh, locked-down
+    in-memory DuckDB database and return it. The caller keeps the Database
+    object (the Streamlit app stores it in st.session_state) and passes it
+    to sql_agent / answer_question / run_question."""
+    return Database.from_dataframes(data)
 
 
 # ------------------------------------------------------------
 # 4. ANSWER A QUESTION  (SQL agent)
 # ------------------------------------------------------------
-def answer_question(question, schema):
+def answer_question(question, schema, db):
     """Thin wrapper over sql_agent. Never raises: failures come back as
     {"success": False, "stage": ..., "error": ...}."""
     try:
-        return sql_agent(question, schema)
+        return sql_agent(question, schema, db)
     except Exception as e:  # last-resort guard
         return {
             "success": False,
@@ -239,11 +180,11 @@ def make_visual(question, df):
 # ------------------------------------------------------------
 # 6. FULL RUN FOR ONE QUESTION
 # ------------------------------------------------------------
-def run_question(question, schema):
+def run_question(question, schema, db):
     """answer_question + SQL analysis + visual, in one call.
     Stops early (no visual) if the SQL agent failed."""
     t0 = time.perf_counter()
-    result = answer_question(question, schema)
+    result = answer_question(question, schema, db)
     out = {"question": question, "agent": result, "visual": None,
            "sql_analysis": None, "success": result.get("success", False)}
 

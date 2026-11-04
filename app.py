@@ -4,8 +4,8 @@ import re
 import pandas as pd
 import streamlit as st
 
-from config import client, GROQ_MODEL, engine
-from Modules.pipeline import ingest, profile, build_schema, load_to_database
+from config import client, GROQ_MODEL
+from Modules.pipeline import ingest, profile, build_schema, open_database
 from Modules.Agents.Agent_sql import sql_agent
 from Modules.visualisation import build_visual_metadata, render_visual
 
@@ -151,11 +151,11 @@ Prioritize the user's main topic. Do not repeat the same analysis.
 # ANALYSIS (computed once, stored in session_state)
 # ============================================================
 
-def run_analysis(question, schema):
+def run_analysis(question, schema, db):
     """Answer one dashboard question with the SQL agent.
     Returns (dataframe | None, error | None, sql | None, attempts)."""
 
-    result = sql_agent(question, schema)
+    result = sql_agent(question, schema, db)
     sql = result.get("sql")
     attempts = result.get("attempts", 1)
 
@@ -173,7 +173,7 @@ def run_analysis(question, schema):
     return df, None, sql, attempts
 
 
-def generate_dashboard(question, schema):
+def generate_dashboard(question, schema, db):
     """Plan, then run every planned question. Heavy work happens once;
     the result is stored in st.session_state so UI clicks don't redo it."""
 
@@ -184,7 +184,7 @@ def generate_dashboard(question, schema):
     total = len(plan["items"])
     for i, item in enumerate(plan["items"]):
         progress.progress(i / total, text=f"Analyzing: {item['title']}")
-        df, error, sql, attempts = run_analysis(item["question"], schema)
+        df, error, sql, attempts = run_analysis(item["question"], schema, db)
         results.append({"item": item, "df": df, "error": error,
                         "sql": sql, "attempts": attempts})
     progress.empty()
@@ -303,6 +303,9 @@ if uploaded_files:
 
     if st.button("🚀 Load dataset", type="primary"):
 
+        old_db = st.session_state.pop("db", None)
+        if old_db is not None:
+            old_db.close()
         for key in ("data", "metadata", "schema", "dashboard"):
             st.session_state.pop(key, None)
 
@@ -313,9 +316,10 @@ if uploaded_files:
             with st.spinner("Profiling the dataset and building the schema..."):
                 schema = build_schema(profile(dataset["data"]), data=dataset["data"])
 
-            with st.spinner("Preparing the query database..."):
-                load_to_database(dataset["data"], engine)
+            with st.spinner("Loading the data into the query engine..."):
+                db = open_database(dataset["data"])
 
+            st.session_state["db"] = db
             st.session_state["data"] = dataset["data"]
             st.session_state["metadata"] = dataset["metadata"]
             st.session_state["schema"] = schema
@@ -373,7 +377,8 @@ if "schema" in st.session_state:
         else:
             try:
                 st.session_state["dashboard"] = generate_dashboard(
-                    question.strip(), st.session_state["schema"]
+                    question.strip(), st.session_state["schema"],
+                    st.session_state["db"]
                 )
             except Exception as exc:
                 st.session_state.pop("dashboard", None)

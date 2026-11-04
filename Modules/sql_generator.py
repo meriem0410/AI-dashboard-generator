@@ -1,13 +1,7 @@
-from config import engine
-from config import client
-import re 
-from Modules.prompt_builder import build_prompt
-from Modules.schema_builder import reduce_schema
-from Modules.sql_validator import (
-    validate_sql,
-    fix_sql_server_syntax
-)
+import re
 
+from config import client
+from Modules.prompt_builder import build_prompt
 
 
 # ============================================================
@@ -159,6 +153,9 @@ def clean_sql(sql: str) -> str:
     sql = sql.replace("\ufeff", "")
     sql = sql.replace("\u200b", "")
 
+    # Remove MySQL-style backticks: `name` -> name
+    sql = sql.replace("`", "")
+
     # Normalize whitespace
     sql = re.sub(r"[ \t]+", " ", sql)
 
@@ -195,37 +192,3 @@ def generate_sql(question, schema, model):
     )
 
     return response.choices[0].message.content
-
-
-# =========================
-# SAFE GENERATION (RETRY)
-# =========================
-# ============================================================
-# SAFE GENERATION
-# ============================================================
-
-def safe_generate_sql(question, schema, model):
-
-    raw = generate_sql(question, schema, model)
-
-    try:
-
-        # 1. Extract SQL from LLM response
-        sql = extract_sql(raw)
-
-        # 2. Clean extracted SQL
-        sql = clean_sql(sql)
-
-        # 3. Convert to SQL Server syntax
-        sql = fix_sql_server_syntax(sql)
-
-        # 4. Validate
-        if validate_sql(sql, schema):
-            return sql
-
-        raise ValueError("Generated SQL failed validation.")
-
-    except Exception as e:
-
-        print(f"⚠️ SQL processing error: {e}")
-        raise

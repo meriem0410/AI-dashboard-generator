@@ -1,22 +1,33 @@
+import re
 import time
 
-from config import engine, GROQ_MODEL, client
+from config import GROQ_MODEL, client
 from Modules.prompt_builder import build_prompt
 from Modules.sql_executor import execute_sql
-from Modules.sql_validator import validate_query, fix_sql_server_syntax
+from Modules.sql_guard import check_read_only, GuardError
+from Modules.sql_validator import validate_query
 from Modules.sql_generator import generate_sql, extract_sql, clean_sql
 
 
 MAX_ATTEMPTS = 3
 
+# A response that starts like this is a request to change data or the
+# engine, not a query. It is stopped as a safety problem and never retried.
+_WRITE_START = re.compile(
+    r"^\s*(?:```\w*\s*)?(?:DELETE|UPDATE|INSERT|DROP|CREATE|ALTER|TRUNCATE|"
+    r"COPY|ATTACH|DETACH|PRAGMA|INSTALL|LOAD|SET|EXPORT|CALL|MERGE|GRANT)\b",
+    re.IGNORECASE,
+)
+
 # Only errors the model can plausibly fix itself are retried.
-# Refusals ("INVALID QUERY"), format failures, API errors and validator
-# crashes still STOP immediately (early rejection).
-RETRYABLE_STAGES = {"schema_validation", "execution"}
+# Refusals ("INVALID QUERY"), format failures, API errors, validator crashes
+# and anything the safety guard calls unsafe ("safety") STOP immediately.
+# "syntax" = the guard could not parse the query or found several statements.
+RETRYABLE_STAGES = {"syntax", "schema_validation", "execution"}
 
 EMPTY_RESULT_FEEDBACK = (
     "The query ran but returned 0 rows. The data may not cover the period "
-    "you filtered on. Do NOT filter relative to today's date (no GETDATE()); "
+    "you filtered on. Do NOT filter relative to today's date (no current_date or now()); "
     "check DATA COVERAGE at the top of the schema, or remove the date filter."
 )
 
@@ -59,7 +70,7 @@ def repair_sql(question, schema, bad_sql, problem):
             "content": (
                 "That query is not acceptable.\n"
                 f"PROBLEM: {problem}\n"
-                "Return a corrected Microsoft SQL Server query. Follow ALL "
+                "Return a corrected DuckDB query. Follow ALL "
                 "the rules above. Return ONLY the SQL, starting with SELECT "
                 "or WITH and ending with a semicolon."
             ),
@@ -83,7 +94,13 @@ def _feedback_for(out):
             + "; ".join(errors)
             + ". Use ONLY tables and columns from the schema."
         )
-    return "SQL Server rejected the query: " + _clean_db_error(out["error"])
+    if out["stage"] == "syntax":
+        return (
+            "The query is not one valid read-only DuckDB SELECT statement: "
+            + _clean_db_error(out["error"])
+            + " Return exactly one SELECT or WITH query."
+        )
+    return "DuckDB rejected the query: " + _clean_db_error(out["error"])
 
 
 # ============================================================
@@ -92,8 +109,9 @@ def _feedback_for(out):
 #         -> execution -> completed
 # ============================================================
 
-def _run_once(question, schema, feedback=None):
-    """feedback is None on the first attempt, or (bad_sql, problem)."""
+def _run_once(question, schema, db, feedback=None):
+    """feedback is None on the first attempt, or (bad_sql, problem).
+    db is the Database object (Modules/engine_duckdb.py) of this session."""
 
     # ---- 1. SQL GENERATION (or repair) -----------------------
     start = time.perf_counter()
@@ -110,8 +128,14 @@ def _run_once(question, schema, feedback=None):
 
     # ---- 2. SQL EXTRACTION (extract -> clean -> dialect fix) --
     try:
-        sql = fix_sql_server_syntax(clean_sql(extract_sql(raw_response)))
+        sql = clean_sql(extract_sql(raw_response))
     except Exception as e:
+        if _WRITE_START.match(raw_response or ""):
+            return _result(False, "safety",
+                           error="Only read-only SELECT queries are allowed "
+                                 "(the request asks to change data).",
+                           raw_response=raw_response,
+                           generation_time=generation_time)
         return _result(False, "extraction", error=str(e),
                        raw_response=raw_response,
                        generation_time=generation_time)
@@ -123,10 +147,18 @@ def _run_once(question, schema, feedback=None):
                        raw_response=raw_response,
                        generation_time=generation_time)
 
+    # ---- 3b. SAFETY GUARD (syntax-tree check) ------------------
+    try:
+        check_read_only(sql)
+    except GuardError as e:
+        return _result(False, "syntax" if e.retryable else "safety",
+                       error=str(e), raw_response=raw_response, sql=sql,
+                       generation_time=generation_time)
+
     # ---- 4. SCHEMA VALIDATION ---------------------------------
     start = time.perf_counter()
     try:
-        validation = validate_query(sql, engine)
+        validation = validate_query(sql, db)
     except Exception as e:
         return _result(False, "validation", error=str(e),
                        raw_response=raw_response, sql=sql,
@@ -146,7 +178,7 @@ def _run_once(question, schema, feedback=None):
     # ---- 6. SQL EXECUTION -------------------------------------
     start = time.perf_counter()
     try:
-        result = execute_sql(sql)
+        result = execute_sql(sql, db)
     except Exception as e:
         return _result(False, "execution", error=str(e),
                        raw_response=raw_response, sql=sql,
@@ -169,7 +201,7 @@ def _run_once(question, schema, feedback=None):
 # SQL GENERATION AGENT (bounded self-correction loop)
 # ============================================================
 
-def sql_agent(question, schema, max_attempts=MAX_ATTEMPTS):
+def sql_agent(question, schema, db, max_attempts=MAX_ATTEMPTS):
     """Run the pipeline; on a fixable failure, send the error back to the
     model and try again, up to max_attempts.
 
@@ -185,7 +217,7 @@ def sql_agent(question, schema, max_attempts=MAX_ATTEMPTS):
     out = None
 
     for attempt in range(1, max_attempts + 1):
-        out = _run_once(question, schema, feedback)
+        out = _run_once(question, schema, db, feedback)
         for key in totals:
             totals[key] += out[key]
 

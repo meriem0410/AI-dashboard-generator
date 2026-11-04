@@ -8,5 +8,9 @@ sqlalchemy
 pyodbc
 openai
 python-dotenv
+duckdb
+pyarrow
+sqlglot
+psutil
 # Keep only if test_groq.py or other code imports the groq SDK:
 # groq
