@@ -68,3 +68,76 @@ def parse_sql_answer(text: str) -> SQLAnswer:
         return SQLAnswer(**data)
     except Exception as e:  # pydantic.ValidationError
         raise ValueError(f"The answer does not match the expected shape: {e}")
+
+
+# ----------------------------------------------------------------------
+# Day 2: the dashboard plan
+# ----------------------------------------------------------------------
+ChartKind = Literal["kpi", "bar", "line", "pie", "table"]
+
+
+class Constraints(BaseModel):
+    """What the user asked for, extracted so that it can be checked later."""
+    model_config = ConfigDict(extra="ignore")
+
+    top_n: Optional[int] = None       # "top 5" -> 5
+    period: Optional[str] = None      # "2024", "last quarter of the data", ...
+    entity: Optional[str] = None      # "driver", "customer", "route", ...
+
+
+class PlanItem(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    id: str = ""
+    title: str
+    question: str
+    kind: ChartKind
+    constraints: Constraints = Field(default_factory=Constraints)
+
+
+class Flagged(BaseModel):
+    """A request that will not be executed, with the reason shown to the user."""
+    model_config = ConfigDict(extra="ignore")
+
+    request: str
+    reason: str
+
+
+class Plan(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    title: str = "Your Dashboard"
+    focus: str = ""
+    items: List[PlanItem] = Field(default_factory=list)
+    unsupported: List[Flagged] = Field(default_factory=list)   # data does not exist
+    blocked: List[Flagged] = Field(default_factory=list)       # asks to change data
+
+    @model_validator(mode="after")
+    def _not_empty(self):
+        if not (self.items or self.unsupported or self.blocked):
+            raise ValueError("the plan has no item, no unsupported and no blocked request")
+        seen = set()
+        for i, item in enumerate(self.items, start=1):
+            if not item.id or item.id in seen:
+                item.id = f"p{i}"
+            seen.add(item.id)
+        return self
+
+
+def parse_json_model(text: str, model):
+    """Read a JSON object from the model's text and validate it with `model`.
+    Raises ValueError with a message the model can act on."""
+    if not text or not text.strip():
+        raise ValueError("The model returned an empty answer.")
+    cleaned = re.sub(r"```(?:json|JSON)?", "", text).strip()
+    match = re.search(r"\{.*\}", cleaned, flags=re.DOTALL)
+    if not match:
+        raise ValueError("No JSON object found in the answer.")
+    try:
+        data = json.loads(match.group(0))
+    except json.JSONDecodeError as e:
+        raise ValueError(f"The answer is not valid JSON: {e}")
+    try:
+        return model(**data)
+    except Exception as e:
+        raise ValueError(f"The answer does not match the expected shape: {e}")

@@ -10,13 +10,22 @@ You are a SQL generator for DuckDB.
 =====================
 OUTPUT FORMAT
 =====================
-- Return ONLY one SQL query: no explanations, no comments, no markdown,
-  no code fences.
-- The response must start with SELECT or WITH and end with a semicolon.
-- If the question cannot be answered with the tables and columns of the
-  schema (the data it asks for does not exist), or it asks to change,
-  delete, create or export data, return exactly:
-  SELECT 'INVALID QUERY';
+Return ONLY one JSON object, with no text around it and no code fence:
+{{"status": "ok", "sql": "SELECT ...;", "assumptions": [], "reason": null}}
+
+- status "ok": the question is clear and the schema can answer it.
+  sql holds ONE query that starts with SELECT or WITH and ends with a
+  semicolon. assumptions is an empty list.
+- status "ambiguous": you chose between several readings (a vague word such
+  as best, worst or problematic, or several possible columns). sql holds your
+  query and assumptions lists each choice as a short sentence the user will
+  read, for example "best drivers = highest total revenue".
+- status "unsupported": the data the question needs does not exist in the
+  schema. sql is null and reason names what is missing, for example
+  "the schema has no driver satisfaction score". Never replace the missing
+  data with another metric.
+- status "blocked": the question asks to change, delete, create or export
+  data. sql is null and reason says that only read-only queries are run.
 
 =====================
 WHAT YOU MAY USE
@@ -72,7 +81,8 @@ DATE RULES
   When the question mentions a period, interpret it using that coverage.
 
 =====================
-EXAMPLES (illustrative table names: use the names from the schema)
+EXAMPLES (the sql part of an answer; the table names are illustrative:
+use the names from the schema)
 =====================
 
 Question: total sales amount per category
@@ -127,5 +137,5 @@ SCHEMA:
 QUESTION:
 {question}
 
-SQL:
+JSON ANSWER:
 """

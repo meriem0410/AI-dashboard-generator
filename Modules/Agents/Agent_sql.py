@@ -1,3 +1,4 @@
+import json
 import re
 import time
 
@@ -6,7 +7,7 @@ from Modules.prompt_builder import build_prompt
 from Modules.sql_executor import execute_sql
 from Modules.sql_guard import check_read_only, GuardError
 from Modules.sql_validator import validate_query
-from Modules.sql_generator import generate_sql, extract_sql, clean_sql
+from Modules.sql_generator import complete_json, generate_sql, extract_sql, clean_sql
 
 
 MAX_ATTEMPTS = 3
@@ -62,27 +63,24 @@ def _clean_db_error(message, limit=600):
 def repair_sql(question, schema, bad_sql, problem):
     """Ask the model to correct its own query, as a continuation of the
     original conversation (original prompt -> its answer -> the problem)."""
+    previous = json.dumps({"status": "ok", "sql": bad_sql,
+                           "assumptions": [], "reason": None})
     messages = [
         {"role": "user", "content": build_prompt(schema, question)},
-        {"role": "assistant", "content": bad_sql},
+        {"role": "assistant", "content": previous},
         {
             "role": "user",
             "content": (
-                "That query is not acceptable.\n"
+                "That answer is not acceptable.\n"
                 f"PROBLEM: {problem}\n"
-                "Return a corrected DuckDB query. Follow ALL "
-                "the rules above. Return ONLY the SQL, starting with SELECT "
-                "or WITH and ending with a semicolon."
+                "Return a corrected answer as the same JSON object (status, "
+                "sql, assumptions, reason). Follow ALL the rules above. The "
+                "sql must be one DuckDB query starting with SELECT or WITH "
+                "and ending with a semicolon."
             ),
         },
     ]
-    response = client.chat.completions.create(
-        model=GROQ_MODEL,
-        temperature=0,
-        reasoning_effort="low",
-        messages=messages,
-    )
-    return response.choices[0].message.content
+    return complete_json(messages, GROQ_MODEL)
 
 
 def _feedback_for(out):

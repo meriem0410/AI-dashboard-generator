@@ -1,12 +1,8 @@
-import json
-import re
-
 import pandas as pd
 import streamlit as st
 
-from config import client, GROQ_MODEL
 from Modules.pipeline import ingest, profile, build_schema, open_database
-from Modules.Agents.Agent_sql import sql_agent
+from Modules.graph_dashboard import run_dashboard
 from Modules.visualisation import build_visual_metadata, render_visual
 
 
@@ -24,172 +20,23 @@ st.write(
 
 
 # ============================================================
-# DASHBOARD PLANNER
+# DASHBOARD GENERATION
+# The planner and the panel agents live in Modules/ (graph_dashboard.py);
+# the app only shows progress and renders the result.
 # ============================================================
-
-PLANNER_SYSTEM_PROMPT = """
-You are a senior BI analyst and dashboard-planning agent.
-
-Your task is to design a dashboard based on:
-1. The user's actual analytical question.
-2. The database schema supplied below.
-
-STRICT RULES:
-- Use only tables and columns present in the schema.
-- Never invent column names, metrics, relationships, or business facts.
-- Focus most visualizations on the user's main topic.
-- Include supporting metrics only when they help answer the user's question.
-- Do not create generic charts unrelated to the question.
-- Avoid charts that would return only one category or a constant value
-  when another useful analysis is possible.
-- Do not use ID columns as numeric measures.
-- Use a date column only if the schema contains a suitable date/time column.
-- Do not assume any metric exists. Check the schema first.
-- Never ask for "recent" periods or "the last N months" unless the user did;
-  the schema starts with DATA COVERAGE, the periods the data really spans.
-- Every chart must specify a clear analytical question, not SQL.
-- Each visualization must be independently useful.
-- Prefer 1-2 KPIs and 3-5 charts.
-- Use only these types: kpi, bar, line, pie, table.
-- KPIs should return a single numeric value.
-- Bar charts compare categories; line charts show change over time;
-  pie charts show a small number of meaningful parts of a whole.
-- If a metric cannot be supported by the schema, omit it.
-- Return valid JSON only. Do not use Markdown.
-
-Return this exact structure:
-{
-  "title": "Short dashboard title",
-  "focus": "What the dashboard will investigate",
-  "items": [
-    {
-      "title": "Short visualization title",
-      "question": "A natural-language question that can be answered using the schema",
-      "kind": "kpi"
-    }
-  ]
-}
-"""
-
-
-def plan_dashboard(question, schema):
-    """Ask the LLM for a dashboard plan grounded in the schema."""
-
-    schema_text = (
-        schema if isinstance(schema, str)
-        else json.dumps(schema, ensure_ascii=False, default=str)
-    )
-    schema_text = schema_text[:18000]
-
-    user_prompt = f"""
-DATABASE SCHEMA:
-{schema_text}
-
-USER'S ANALYTICAL QUESTION:
-{question}
-
-Create a focused dashboard plan.
-Return 4 to 6 visualizations total, including 1 or 2 KPIs if supported.
-Prioritize the user's main topic. Do not repeat the same analysis.
-"""
-
-    response = client.chat.completions.create(
-        model=GROQ_MODEL,
-        messages=[
-            {"role": "system", "content": PLANNER_SYSTEM_PROMPT},
-            {"role": "user", "content": user_prompt},
-        ],
-        temperature=0.1,
-        reasoning_effort="low",
-        max_tokens=2000,
-    )
-
-    content = (response.choices[0].message.content or "").strip()
-    content = re.sub(
-        r"^```(?:json)?\s*|\s*```$", "", content, flags=re.IGNORECASE
-    ).strip()
-
-    try:
-        plan = json.loads(content)
-    except json.JSONDecodeError as e:
-        raise ValueError(f"The planner did not return valid JSON: {e}")
-
-    allowed_kinds = {"kpi", "bar", "line", "pie", "table"}
-    items = plan.get("items", [])
-    if not isinstance(items, list):
-        raise ValueError("The dashboard planner returned an invalid items list.")
-
-    validated = []
-    for item in items:
-        if not isinstance(item, dict):
-            continue
-        title = item.get("title")
-        chart_question = item.get("question")
-        kind = item.get("kind")
-        if (
-            isinstance(title, str) and title.strip()
-            and isinstance(chart_question, str) and chart_question.strip()
-            and kind in allowed_kinds
-        ):
-            validated.append({
-                "title": title.strip(),
-                "question": chart_question.strip(),
-                "kind": kind,
-            })
-
-    if not validated:
-        raise ValueError("The planner did not produce any valid visualizations.")
-
-    return {
-        "title": str(plan.get("title", "Your Dashboard")),
-        "focus": str(plan.get("focus", question)),
-        "items": validated[:6],
-    }
-
-
-# ============================================================
-# ANALYSIS (computed once, stored in session_state)
-# ============================================================
-
-def run_analysis(question, schema, db):
-    """Answer one dashboard question with the SQL agent.
-    Returns (dataframe | None, error | None, sql | None, attempts)."""
-
-    result = sql_agent(question, schema, db)
-    sql = result.get("sql")
-    attempts = result.get("attempts", 1)
-
-    if not result.get("success"):
-        return None, result.get("error", "SQL analysis failed."), sql, attempts
-
-    df = result.get("result")
-    if df is None:
-        return None, "The SQL agent did not return a result.", sql, attempts
-    if not isinstance(df, pd.DataFrame):
-        return None, "The SQL agent returned an unexpected result format.", sql, attempts
-    if df.empty:
-        return None, "The query returned no data.", sql, attempts
-
-    return df, None, sql, attempts
-
 
 def generate_dashboard(question, schema, db):
     """Plan, then run every planned question. Heavy work happens once;
     the result is stored in st.session_state so UI clicks don't redo it."""
+    progress = st.progress(0.0, text="Planning...")
 
-    plan = plan_dashboard(question, schema)
-    results = []
+    def on_progress(i, total, title):
+        progress.progress(i / max(total, 1), text=f"Analyzing: {title}")
 
-    progress = st.progress(0.0, text="Analyzing...")
-    total = len(plan["items"])
-    for i, item in enumerate(plan["items"]):
-        progress.progress(i / total, text=f"Analyzing: {item['title']}")
-        df, error, sql, attempts = run_analysis(item["question"], schema, db)
-        results.append({"item": item, "df": df, "error": error,
-                        "sql": sql, "attempts": attempts})
-    progress.empty()
-
-    return {"question": question, "plan": plan, "results": results}
+    try:
+        return run_dashboard(question, schema, db, on_progress=on_progress)
+    finally:
+        progress.empty()
 
 
 # ============================================================
@@ -209,7 +56,13 @@ def render_item(res, idx):
     st.subheader(item["title"])
 
     if error:
-        st.warning(f"Could not generate this visualization: {error}")
+        stage = res.get("stage")
+        if stage == "unsupported":
+            st.info(f"Not available in this dataset: {error}")
+        elif stage == "blocked":
+            st.warning(f"Not executed: {error}")
+        else:
+            st.warning(f"Could not generate this visualization: {error}")
         if attempts > 1:
             st.caption(f"The SQL agent tried {attempts} times before giving up.")
         if sql:
@@ -255,6 +108,11 @@ def render_item(res, idx):
         else:
             st.dataframe(df, width="stretch")
 
+    for assumption in res.get("assumptions", []):
+        st.caption(f"Assumption: {assumption}")
+    for note in res.get("notes", []):
+        st.caption(f"Note: {note}")
+
     with st.expander("SQL and data"):
         if attempts > 1:
             st.caption(f"Self-corrected: the query succeeded on attempt {attempts}.")
@@ -269,6 +127,11 @@ def render_dashboard(dash):
     st.header(plan["title"])
     st.write(f"**Your question:** {dash['question']}")
     st.caption(plan["focus"])
+
+    for flagged in dash.get("unsupported", []):
+        st.info(f"Not available in this dataset: {flagged['request']}. {flagged['reason']}")
+    for flagged in dash.get("blocked", []):
+        st.warning(f"Not executed: {flagged['request']}. {flagged['reason']}")
 
     kpis = [(i, r) for i, r in enumerate(results) if r["item"]["kind"] == "kpi"]
     charts = [(i, r) for i, r in enumerate(results) if r["item"]["kind"] != "kpi"]

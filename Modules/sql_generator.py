@@ -173,22 +173,31 @@ def clean_sql(sql: str) -> str:
 # =========================
 # CALL GROQ LLM
 # =========================
-def generate_sql(question, schema, model):
+def _format_refused(error):
+    """True when the API refused the JSON response format (not a real failure)."""
+    text = str(error).lower()
+    return (getattr(error, "status_code", None) == 400
+            or "response_format" in text or "json" in text)
 
-    #schema = reduce_schema(schema, question)
 
-    prompt = build_prompt(schema, question)
-
-    response = client.chat.completions.create(
-        model=model,
-        temperature=0,
-         reasoning_effort="low",
-        messages=[
-            {
-                "role": "user",
-                "content": prompt
-            }
-        ]
-    )
-
+def complete_json(messages, model):
+    """Call the model asking for a JSON object. If the API refuses that
+    response format, call again without it: the prompt already describes the
+    JSON, and the answer is parsed tolerantly afterwards."""
+    base = dict(model=model, temperature=0, reasoning_effort="low",
+                messages=messages)
+    try:
+        response = client.chat.completions.create(
+            response_format={"type": "json_object"}, **base)
+    except Exception as e:
+        if not _format_refused(e):
+            raise
+        response = client.chat.completions.create(**base)
     return response.choices[0].message.content
+
+
+def generate_sql(question, schema, model):
+    """First call. Returns the model's raw text (a JSON object, or a bare
+    query from an older prompt)."""
+    prompt = build_prompt(schema, question)
+    return complete_json([{"role": "user", "content": prompt}], model)

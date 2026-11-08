@@ -4,6 +4,8 @@ from pathlib import Path
 from dotenv import load_dotenv
 from openai import OpenAI
 
+from Modules.llm_cache import wrap_client
+
 load_dotenv()
 
 # =========================
@@ -22,6 +24,13 @@ client = OpenAI(
     base_url="https://api.groq.com/openai/v1",
     timeout=60,       # seconds, so a stuck call cannot freeze the app
     max_retries=2,    # the client retries rate-limit and network errors
+)
+
+# Record-and-replay cache for model calls. LLM_CACHE=off (default), on, replay.
+# See Modules/llm_cache.py.
+client = wrap_client(
+    client,
+    directory=os.getenv("LLM_CACHE_DIR", str(Path(__file__).resolve().parent / "llm_cache")),
 )
 
 # =========================

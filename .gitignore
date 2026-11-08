@@ -58,4 +58,4 @@ data/
 
 *.log
 .DS_Store
-Thumbs.db
+Thumbs.dbllm_cache/
