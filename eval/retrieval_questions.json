@@ -1,0 +1,153 @@
+
+[
+  {
+    "dataset": "Logistics",
+    "question": "What is the total fuel cost per driver?",
+    "tables": ["fuel_purchases", "drivers"]
+  },
+  {
+    "dataset": "Logistics",
+    "question": "What is the maintenance cost per truck?",
+    "tables": ["maintenance_records", "trucks"]
+  },
+  {
+    "dataset": "Logistics",
+    "question": "What is the total revenue per customer?",
+    "tables": ["loads", "customers"]
+  },
+  {
+    "dataset": "Logistics",
+    "question": "How many safety incidents are there for each incident type?",
+    "tables": ["safety_incidents"]
+  },
+  {
+    "dataset": "Logistics",
+    "question": "What is the average detention time at each facility?",
+    "tables": ["delivery_events", "facilities"]
+  },
+  {
+    "dataset": "Logistics",
+    "question": "Which routes carry the most loads?",
+    "tables": ["loads", "routes"]
+  },
+  {
+    "dataset": "Logistics",
+    "question": "What is the average trip distance per driver?",
+    "tables": ["trips", "drivers"]
+  },
+  {
+    "dataset": "Logistics",
+    "question": "How many trailers were acquired each year?",
+    "tables": ["trailers"]
+  },
+  {
+    "dataset": "Logistics",
+    "question": "What is the late delivery rate for each customer?",
+    "tables": ["delivery_events", "loads", "customers"]
+  },
+  {
+    "dataset": "Logistics",
+    "question": "How do fuel gallons used on trips compare with fuel purchased?",
+    "tables": ["trips", "fuel_purchases"]
+  },
+  {
+    "dataset": "salesData",
+    "question": "What is the total revenue per product?",
+    "tables": ["order_items", "products"]
+  },
+  {
+    "dataset": "salesData",
+    "question": "How many orders has each customer placed?",
+    "tables": ["orders", "customers"]
+  },
+  {
+    "dataset": "salesData",
+    "question": "What is the average review score per product?",
+    "tables": ["reviews", "products"]
+  },
+  {
+    "dataset": "salesData",
+    "question": "How many sessions are there per month?",
+    "tables": ["sessions"]
+  },
+  {
+    "dataset": "salesData",
+    "question": "What are the most common event types?",
+    "tables": ["events"]
+  },
+  {
+    "dataset": "salesData",
+    "question": "How has monthly order revenue evolved?",
+    "tables": ["orders"]
+  },
+  {
+    "dataset": "salesData",
+    "question": "Which customers have left a review?",
+    "tables": ["reviews", "customers"]
+  },
+  {
+    "dataset": "salesData",
+    "question": "What is the average order value?",
+    "tables": ["orders"]
+  },
+  {
+    "dataset": "salesData",
+    "question": "How many sessions lead to an order?",
+    "tables": ["sessions", "orders"]
+  },
+  {
+    "dataset": "salesData",
+    "question": "Which product categories sell the most items?",
+    "tables": ["products", "order_items"]
+  },
+  {
+    "dataset": "Logistics",
+    "question": "What is the total maintenance cost for each truck?",
+    "tables": ["maintenance_records", "trucks"]
+  },
+  {
+    "dataset": "Logistics",
+    "question": "Which drivers have the highest number of safety incidents?",
+    "tables": ["drivers", "safety_incidents"]
+  },
+  {
+    "dataset": "Logistics",
+    "question": "What is the total fuel expenditure by month?",
+    "tables": ["fuel_purchases"]
+  },
+  {
+    "dataset": "Logistics",
+    "question": "How many loads does each customer have?",
+    "tables": ["customers", "loads"]
+  },
+  {
+    "dataset": "Logistics",
+    "question": "Which facilities record the highest number of delivery events?",
+    "tables": ["facilities", "delivery_events"]
+  },
+  {
+    "dataset": "Logistics",
+    "question": "What is the distribution of safety incidents by incident type?",
+    "tables": ["safety_incidents"]
+  },
+  {
+    "dataset": "Logistics",
+    "question": "What is the average revenue per load for each customer?",
+    "tables": ["customers", "loads"]
+  },
+  {
+    "dataset": "Logistics",
+    "question": "How many trips are associated with each truck?",
+    "tables": ["trucks", "trips"]
+  },
+  {
+    "dataset": "Logistics",
+    "question": "What is the total fuel cost associated with each customer?",
+    "tables": ["fuel_purchases", "trips", "loads", "customers"]
+  },
+  {
+    "dataset": "Logistics",
+    "question": "Which trailers are used most frequently?",
+    "tables": ["trailers", "trips"]
+  }
+]

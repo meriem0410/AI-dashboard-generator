@@ -114,14 +114,14 @@ print("\n--- B. what the graph reports ---")
 g = run_graph([COUNT])
 check("good SQL: success on attempt 1", g["success"] and g["attempts"] == 1, str(g["error"]))
 check("good SQL: the whole path is recorded",
-      g["path"] == ["generate", "extract", "safety", "schema_check", "execute", "semantic_check", "check", "finish"], str(g["path"]))
+      g["path"] == ["retrieve", "generate", "extract", "safety", "schema_check", "execute", "semantic_check", "check", "finish"], str(g["path"]))
 check("good SQL: a DataFrame comes back", isinstance(g["result"], pd.DataFrame) and g["result"].iloc[0]["n"] == 6)
 check("runner is named", g["runner"] == "graph")
 check("generation and execution times are recorded", g["generation_time"] >= 0 and g["execution_time"] >= 0)
 
 g = run_graph(["SELECT nope FROM loads;", COUNT])
 check("a repair shows in the path",
-      g["path"] == ["generate", "extract", "safety", "schema_check", "repair",
+      g["path"] == ["retrieve", "generate", "extract", "safety", "schema_check", "repair",
                     "extract", "safety", "schema_check", "execute", "semantic_check", "check", "finish"], str(g["path"]))
 check("the failed attempt is in the history",
       g["history"][0]["stage"] == "schema_validation" and g["history"][1]["stage"] == "completed", str(g["history"]))

@@ -21,8 +21,9 @@ word in the prompt and it is a new key.
 
 Only the full text of the answer and the token counts are stored, plus a
 short preview of the request. The folder can be deleted at any time.
-It wraps the OpenAI-style client used by Modules/sql_generator.py,
-Agent_sql.py and the planner; it does not cache LangChain model calls.
+It wraps the OpenAI-style client used by Modules/sql_generator.py, the
+planner and the Data Agent, including replies that ask for tool calls. It
+does not cache LangChain model calls.
 """
 import hashlib
 import json
@@ -61,9 +62,25 @@ def _usage_dict(response):
     return out or None
 
 
-def _build_response(content, usage):
-    message = SimpleNamespace(role="assistant", content=content)
-    choice = SimpleNamespace(index=0, message=message, finish_reason="stop")
+def _tool_calls_dict(message):
+    """The tool calls of a reply as plain dictionaries (or None)."""
+    calls = getattr(message, "tool_calls", None)
+    if not calls:
+        return None
+    return [{"id": c.id, "name": c.function.name, "arguments": c.function.arguments}
+            for c in calls]
+
+
+def _build_response(content, usage, tool_calls=None):
+    calls = None
+    if tool_calls:
+        calls = [SimpleNamespace(
+            id=c["id"], type="function",
+            function=SimpleNamespace(name=c["name"], arguments=c["arguments"]))
+            for c in tool_calls]
+    message = SimpleNamespace(role="assistant", content=content, tool_calls=calls)
+    choice = SimpleNamespace(index=0, message=message,
+                             finish_reason="tool_calls" if calls else "stop")
     return SimpleNamespace(
         choices=[choice],
         usage=SimpleNamespace(**usage) if usage else None,
@@ -78,6 +95,8 @@ class CachedClient:
         self.directory = Path(directory)
         self.hits = 0
         self.misses = 0
+        self.real_tokens = 0      # total_tokens billed by real model calls (quota actually spent)
+        self.cached_tokens = 0    # total_tokens replayed from cache for free (quota saved)
         self.chat = SimpleNamespace(
             completions=SimpleNamespace(create=self._create))
 
@@ -94,7 +113,8 @@ class CachedClient:
         if path.exists():
             data = json.loads(path.read_text(encoding="utf-8"))
             self.hits += 1
-            return _build_response(data["content"], data.get("usage"))
+            self.cached_tokens += int((data.get("usage") or {}).get("total_tokens") or 0)
+            return _build_response(data["content"], data.get("usage"), data.get("tool_calls"))
 
         if self.mode == "replay":
             raise CacheMiss(
@@ -103,7 +123,9 @@ class CachedClient:
 
         response = self._client.chat.completions.create(**kwargs)
         self.misses += 1
+        self.real_tokens += int((_usage_dict(response) or {}).get("total_tokens") or 0)
         content = response.choices[0].message.content
+        tool_calls = _tool_calls_dict(response.choices[0].message)
         self.directory.mkdir(parents=True, exist_ok=True)
         messages = kwargs.get("messages") or [{}]
         record = {
@@ -112,6 +134,7 @@ class CachedClient:
             "temperature": kwargs.get("temperature"),
             "request_preview": str(messages[-1].get("content", ""))[:300],
             "content": content,
+            "tool_calls": tool_calls,
             "usage": _usage_dict(response),
         }
         fd, tmp = tempfile.mkstemp(dir=self.directory, suffix=".tmp")

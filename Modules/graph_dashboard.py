@@ -60,8 +60,13 @@ def build_dashboard_graph(db, on_progress=None, max_attempts=3):
             if out.get("success") and (df is None or df.empty):
                 df, error = None, "The query returned no data."
             results.append({
-                "item": {"id": item.id, "title": item.title,
-                         "question": item.question, "kind": item.kind},
+                "item": {
+                            "id": item.id,
+                            "title": item.title,
+                            "question": item.question,
+                            "kind": item.kind,
+                            "constraints": item.constraints
+                        },
                 "df": df, "error": error if not out.get("success") or df is None else None,
                 "sql": out.get("sql"), "attempts": out.get("attempts", 1),
                 "status": out.get("status", "ok"),

@@ -58,4 +58,22 @@ data/
 
 *.log
 .DS_Store
-Thumbs.dbllm_cache/
+Thumbs.db
+.env
+.venv/
+__pycache__/
+*.pyc
+llm_cache/
+workspace_data/
+app_data/
+data/
+data_parquet/
+runs/
+archive/
+Outputs/
+*.bak*
+*.before_*
+app.backup_*
+Evaluation_bak_*/
+schema.txt
+profile_output.json

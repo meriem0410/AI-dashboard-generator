@@ -28,6 +28,7 @@ from Modules.graph_dashboard import run_dashboard
 from Modules.graph_panel import run_panel
 from Modules.schemas import Plan, parse_json_model
 
+planner_module.ENFORCE_COMPOSITION = False   # these tests exercise the raw planner (see test_composition.py)
 failures = 0
 
 
@@ -149,7 +150,7 @@ g = run_panel("average driver satisfaction per month", "SCHEMA", db)
 check("status unsupported: stops with the reason",
       (not g["success"]) and g["stage"] == "unsupported" and "satisfaction" in g["error"], f"{g['stage']} {g['error']}")
 check("unsupported is not retried and runs no query",
-      g["attempts"] == 1 and len(model.requests) == 1 and g["path"] == ["generate", "extract", "finish"], str(g["path"]))
+      g["attempts"] == 1 and len(model.requests) == 1 and g["path"] == ["retrieve", "generate", "extract", "finish"], str(g["path"]))
 
 model = install([answer("blocked", None, None, "only read-only queries are run")])
 g = run_panel("Delete all trips", "SCHEMA", db)
@@ -172,6 +173,16 @@ check("when the budget runs out, the last good result is kept (never destroyed)"
       g["success"] and g["result"] is not None and len(g["result"]) == 20, f"{g['success']} {g['stage']}")
 check("the unresolved problem is shown as a note", any(n.startswith("Unresolved") for n in g["notes"]), str(g["notes"]))
 check("it used all 3 attempts", g["attempts"] == 3, str(g["attempts"]))
+
+model = install([answer("ok", UNLIMITED), "this is not json"])
+g = run_panel("Top 5 drivers by miles", "SCHEMA", db, kind="bar")
+check("a repair that returns garbage keeps the good result",
+      g["success"] and len(g["result"]) == 20 and any(n.startswith("Unresolved") for n in g["notes"]), f"{g['success']} {g['stage']} {g['notes']}")
+
+model = install([answer("ok", UNLIMITED), answer("blocked", None, None, "refused")])
+g = run_panel("Top 5 drivers by miles", "SCHEMA", db, kind="bar")
+check("a repair that refuses keeps the good result",
+      g["success"] and len(g["result"]) == 20 and any(n.startswith("Unresolved") for n in g["notes"]), f"{g['success']} {g['stage']} {g['notes']}")
 
 model = install([answer("ok", UNLIMITED)] * 3)
 g = run_panel("Top 5 drivers by miles", "SCHEMA", db, kind="bar")

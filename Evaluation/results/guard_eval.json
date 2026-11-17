@@ -1,0 +1,629 @@
+{
+ "attacks": [
+  {
+   "category": "write",
+   "sql": "DELETE FROM trips",
+   "guard_blocked": true,
+   "reason": "Only read-only SELECT queries are allowed (found: DELETE).",
+   "engine_alone_blocked": true
+  },
+  {
+   "category": "write",
+   "sql": "delete from trips where 1=1",
+   "guard_blocked": true,
+   "reason": "Only read-only SELECT queries are allowed (found: DELETE).",
+   "engine_alone_blocked": true
+  },
+  {
+   "category": "write",
+   "sql": "UPDATE trips SET miles = 0",
+   "guard_blocked": true,
+   "reason": "Only read-only SELECT queries are allowed (found: UPDATE).",
+   "engine_alone_blocked": true
+  },
+  {
+   "category": "write",
+   "sql": "INSERT INTO trips VALUES (1, 'D1', 5)",
+   "guard_blocked": true,
+   "reason": "Only read-only SELECT queries are allowed (found: INSERT).",
+   "engine_alone_blocked": true
+  },
+  {
+   "category": "write",
+   "sql": "INSERT INTO trips SELECT * FROM trips",
+   "guard_blocked": true,
+   "reason": "Only read-only SELECT queries are allowed (found: INSERT).",
+   "engine_alone_blocked": true
+  },
+  {
+   "category": "write",
+   "sql": "DROP TABLE trips",
+   "guard_blocked": true,
+   "reason": "Only read-only SELECT queries are allowed (found: DROP).",
+   "engine_alone_blocked": true
+  },
+  {
+   "category": "write",
+   "sql": "DROP VIEW trips",
+   "guard_blocked": true,
+   "reason": "Only read-only SELECT queries are allowed (found: DROP).",
+   "engine_alone_blocked": false
+  },
+  {
+   "category": "write",
+   "sql": "CREATE TABLE x AS SELECT * FROM trips",
+   "guard_blocked": true,
+   "reason": "Only read-only SELECT queries are allowed (found: CREATE).",
+   "engine_alone_blocked": false
+  },
+  {
+   "category": "write",
+   "sql": "CREATE OR REPLACE VIEW trips AS SELECT 1",
+   "guard_blocked": true,
+   "reason": "Only read-only SELECT queries are allowed (found: CREATE).",
+   "engine_alone_blocked": false
+  },
+  {
+   "category": "write",
+   "sql": "ALTER TABLE trips ADD COLUMN z INT",
+   "guard_blocked": true,
+   "reason": "Only read-only SELECT queries are allowed (found: ALTER).",
+   "engine_alone_blocked": true
+  },
+  {
+   "category": "write",
+   "sql": "TRUNCATE TABLE trips",
+   "guard_blocked": true,
+   "reason": "Only read-only SELECT queries are allowed (found: TRUNCATETABLE).",
+   "engine_alone_blocked": true
+  },
+  {
+   "category": "write",
+   "sql": "MERGE INTO trips USING drivers ON 1=1 WHEN MATCHED THEN DELETE",
+   "guard_blocked": true,
+   "reason": "Only read-only SELECT queries are allowed (found: MERGE).",
+   "engine_alone_blocked": true
+  },
+  {
+   "category": "write",
+   "sql": "SELECT * INTO backup FROM trips",
+   "guard_blocked": true,
+   "reason": "A forbidden operation was found inside the query: INTO.",
+   "engine_alone_blocked": true
+  },
+  {
+   "category": "cte-write",
+   "sql": "WITH t AS (SELECT * FROM trips) DELETE FROM trips",
+   "guard_blocked": true,
+   "reason": "Only read-only SELECT queries are allowed (found: DELETE).",
+   "engine_alone_blocked": true
+  },
+  {
+   "category": "cte-write",
+   "sql": "WITH t AS (SELECT 1) INSERT INTO trips SELECT * FROM trips",
+   "guard_blocked": true,
+   "reason": "Only read-only SELECT queries are allowed (found: INSERT).",
+   "engine_alone_blocked": true
+  },
+  {
+   "category": "cte-write",
+   "sql": "WITH d AS (DELETE FROM trips RETURNING *) SELECT * FROM d",
+   "guard_blocked": true,
+   "reason": "A forbidden operation was found inside the query: DELETE.",
+   "engine_alone_blocked": true
+  },
+  {
+   "category": "stacked",
+   "sql": "SELECT 1; DROP TABLE trips",
+   "guard_blocked": true,
+   "reason": "Exactly one SQL statement is allowed, found 2.",
+   "engine_alone_blocked": true
+  },
+  {
+   "category": "stacked",
+   "sql": "SELECT 1; SELECT 2",
+   "guard_blocked": true,
+   "reason": "Exactly one SQL statement is allowed, found 2.",
+   "engine_alone_blocked": false
+  },
+  {
+   "category": "stacked",
+   "sql": "SELECT * FROM trips; DELETE FROM trips;",
+   "guard_blocked": true,
+   "reason": "Exactly one SQL statement is allowed, found 2.",
+   "engine_alone_blocked": true
+  },
+  {
+   "category": "stacked",
+   "sql": "SELECT 1 /* x */; /* y */ DROP TABLE trips",
+   "guard_blocked": true,
+   "reason": "Exactly one SQL statement is allowed, found 3.",
+   "engine_alone_blocked": true
+  },
+  {
+   "category": "obfuscated",
+   "sql": "/**/DELETE/**/FROM/**/trips",
+   "guard_blocked": true,
+   "reason": "Only read-only SELECT queries are allowed (found: DELETE).",
+   "engine_alone_blocked": true
+  },
+  {
+   "category": "obfuscated",
+   "sql": "DeLeTe FrOm trips",
+   "guard_blocked": true,
+   "reason": "Only read-only SELECT queries are allowed (found: DELETE).",
+   "engine_alone_blocked": true
+  },
+  {
+   "category": "obfuscated",
+   "sql": "-- harmless\nDROP TABLE trips",
+   "guard_blocked": true,
+   "reason": "Only read-only SELECT queries are allowed (found: DROP).",
+   "engine_alone_blocked": true
+  },
+  {
+   "category": "obfuscated",
+   "sql": "  \n\t DROP TABLE trips",
+   "guard_blocked": true,
+   "reason": "Only read-only SELECT queries are allowed (found: DROP).",
+   "engine_alone_blocked": true
+  },
+  {
+   "category": "file-read",
+   "sql": "SELECT * FROM read_csv('/etc/passwd')",
+   "guard_blocked": true,
+   "reason": "The function read_csv is not allowed.",
+   "engine_alone_blocked": true
+  },
+  {
+   "category": "file-read",
+   "sql": "SELECT * FROM read_csv_auto('data/secret.csv')",
+   "guard_blocked": true,
+   "reason": "The function read_csv_auto is not allowed.",
+   "engine_alone_blocked": true
+  },
+  {
+   "category": "file-read",
+   "sql": "SELECT * FROM read_parquet('x.parquet')",
+   "guard_blocked": true,
+   "reason": "The function read_parquet is not allowed.",
+   "engine_alone_blocked": true
+  },
+  {
+   "category": "file-read",
+   "sql": "SELECT * FROM read_json('x.json')",
+   "guard_blocked": true,
+   "reason": "The function read_json is not allowed.",
+   "engine_alone_blocked": true
+  },
+  {
+   "category": "file-read",
+   "sql": "SELECT * FROM read_text('/etc/passwd')",
+   "guard_blocked": true,
+   "reason": "The function read_text is not allowed.",
+   "engine_alone_blocked": true
+  },
+  {
+   "category": "file-read",
+   "sql": "SELECT * FROM '/etc/passwd'",
+   "guard_blocked": true,
+   "reason": "Reading a file by path is not allowed.",
+   "engine_alone_blocked": true
+  },
+  {
+   "category": "file-read",
+   "sql": "SELECT * FROM 'data/secret.csv'",
+   "guard_blocked": true,
+   "reason": "Reading a file by path is not allowed.",
+   "engine_alone_blocked": true
+  },
+  {
+   "category": "file-read",
+   "sql": "SELECT * FROM glob('/*')",
+   "guard_blocked": true,
+   "reason": "The function glob is not allowed.",
+   "engine_alone_blocked": true
+  },
+  {
+   "category": "file-read",
+   "sql": "SELECT * FROM parquet_scan('x.parquet')",
+   "guard_blocked": true,
+   "reason": "The function parquet_scan is not allowed.",
+   "engine_alone_blocked": true
+  },
+  {
+   "category": "file-read",
+   "sql": "SELECT * FROM sniff_csv('x.csv')",
+   "guard_blocked": true,
+   "reason": "The function sniff_csv is not allowed.",
+   "engine_alone_blocked": true
+  },
+  {
+   "category": "file-write",
+   "sql": "COPY trips TO '/tmp/out.csv'",
+   "guard_blocked": true,
+   "reason": "Only read-only SELECT queries are allowed (found: COPY).",
+   "engine_alone_blocked": true
+  },
+  {
+   "category": "file-write",
+   "sql": "COPY (SELECT * FROM trips) TO '/tmp/out.csv'",
+   "guard_blocked": true,
+   "reason": "Only read-only SELECT queries are allowed (found: COPY).",
+   "engine_alone_blocked": true
+  },
+  {
+   "category": "file-write",
+   "sql": "EXPORT DATABASE '/tmp/export'",
+   "guard_blocked": true,
+   "reason": "The query could not be parsed as DuckDB SQL: Invalid expression / Unexpected token. Line 1, Col: 29. EXPORT DATABASE \u001b[4m'/tmp/export'\u001b[0m",
+   "engine_alone_blocked": true
+  },
+  {
+   "category": "engine",
+   "sql": "ATTACH '/tmp/other.db' AS other",
+   "guard_blocked": true,
+   "reason": "Only read-only SELECT queries are allowed (found: ATTACH).",
+   "engine_alone_blocked": true
+  },
+  {
+   "category": "engine",
+   "sql": "DETACH other",
+   "guard_blocked": true,
+   "reason": "Only read-only SELECT queries are allowed (found: DETACH).",
+   "engine_alone_blocked": true
+  },
+  {
+   "category": "engine",
+   "sql": "INSTALL httpfs",
+   "guard_blocked": true,
+   "reason": "Only read-only SELECT queries are allowed (found: INSTALL).",
+   "engine_alone_blocked": true
+  },
+  {
+   "category": "engine",
+   "sql": "LOAD httpfs",
+   "guard_blocked": true,
+   "reason": "Only read-only SELECT queries are allowed (found: COMMAND).",
+   "engine_alone_blocked": true
+  },
+  {
+   "category": "engine",
+   "sql": "PRAGMA database_list",
+   "guard_blocked": true,
+   "reason": "Only read-only SELECT queries are allowed (found: PRAGMA).",
+   "engine_alone_blocked": false
+  },
+  {
+   "category": "engine",
+   "sql": "SET enable_external_access = true",
+   "guard_blocked": true,
+   "reason": "Only read-only SELECT queries are allowed (found: SET).",
+   "engine_alone_blocked": true
+  },
+  {
+   "category": "engine",
+   "sql": "SET memory_limit = '100GB'",
+   "guard_blocked": true,
+   "reason": "Only read-only SELECT queries are allowed (found: SET).",
+   "engine_alone_blocked": true
+  },
+  {
+   "category": "engine",
+   "sql": "RESET enable_external_access",
+   "guard_blocked": true,
+   "reason": "Only read-only SELECT queries are allowed (found: COMMAND).",
+   "engine_alone_blocked": true
+  },
+  {
+   "category": "engine",
+   "sql": "CALL pragma_database_size()",
+   "guard_blocked": true,
+   "reason": "Only read-only SELECT queries are allowed (found: COMMAND).",
+   "engine_alone_blocked": false
+  },
+  {
+   "category": "engine",
+   "sql": "SELECT * FROM duckdb_settings()",
+   "guard_blocked": true,
+   "reason": "The function duckdb_settings is not allowed.",
+   "engine_alone_blocked": false
+  },
+  {
+   "category": "engine",
+   "sql": "SELECT * FROM duckdb_tables()",
+   "guard_blocked": true,
+   "reason": "The function duckdb_tables is not allowed.",
+   "engine_alone_blocked": false
+  },
+  {
+   "category": "engine",
+   "sql": "SELECT current_setting('enable_external_access')",
+   "guard_blocked": true,
+   "reason": "The function current_setting is not allowed.",
+   "engine_alone_blocked": false
+  },
+  {
+   "category": "engine",
+   "sql": "SELECT getenv('HOME')",
+   "guard_blocked": true,
+   "reason": "The function getenv is not allowed.",
+   "engine_alone_blocked": true
+  },
+  {
+   "category": "engine",
+   "sql": "SELECT * FROM query_table('trips')",
+   "guard_blocked": true,
+   "reason": "The function query_table is not allowed.",
+   "engine_alone_blocked": false
+  },
+  {
+   "category": "engine",
+   "sql": "SELECT * FROM query('DELETE FROM trips')",
+   "guard_blocked": true,
+   "reason": "The function query is not allowed.",
+   "engine_alone_blocked": true
+  },
+  {
+   "category": "engine",
+   "sql": "EXECUTE foo",
+   "guard_blocked": true,
+   "reason": "Only read-only SELECT queries are allowed (found: COMMAND).",
+   "engine_alone_blocked": true
+  },
+  {
+   "category": "engine",
+   "sql": "VACUUM",
+   "guard_blocked": true,
+   "reason": "Only read-only SELECT queries are allowed (found: COMMAND).",
+   "engine_alone_blocked": false
+  },
+  {
+   "category": "engine",
+   "sql": "BEGIN TRANSACTION",
+   "guard_blocked": true,
+   "reason": "Only read-only SELECT queries are allowed (found: TRANSACTION).",
+   "engine_alone_blocked": false
+  },
+  {
+   "category": "engine",
+   "sql": "DESCRIBE trips",
+   "guard_blocked": true,
+   "reason": "Only read-only SELECT queries are allowed (found: DESCRIBE).",
+   "engine_alone_blocked": false
+  },
+  {
+   "category": "engine",
+   "sql": "SHOW TABLES",
+   "guard_blocked": true,
+   "reason": "Only read-only SELECT queries are allowed (found: SHOW).",
+   "engine_alone_blocked": false
+  }
+ ],
+ "benign": [
+  {
+   "category": "aggregate",
+   "sql": "SELECT COUNT(*) AS n FROM trips",
+   "guard_allowed": true,
+   "reason": null,
+   "runs": true
+  },
+  {
+   "category": "aggregate",
+   "sql": "SELECT AVG(miles) AS avg_miles, SUM(miles) AS total FROM trips",
+   "guard_allowed": true,
+   "reason": null,
+   "runs": true
+  },
+  {
+   "category": "aggregate",
+   "sql": "SELECT driver_id, SUM(miles) AS total FROM trips GROUP BY driver_id ORDER BY total DESC LIMIT 5",
+   "guard_allowed": true,
+   "reason": null,
+   "runs": true
+  },
+  {
+   "category": "join",
+   "sql": "SELECT d.first_name, SUM(t.miles) AS m FROM drivers d JOIN trips t USING (driver_id) GROUP BY ALL",
+   "guard_allowed": true,
+   "reason": null,
+   "runs": true
+  },
+  {
+   "category": "join",
+   "sql": "SELECT * FROM trips t LEFT JOIN drivers d ON t.driver_id = d.driver_id",
+   "guard_allowed": true,
+   "reason": null,
+   "runs": true
+  },
+  {
+   "category": "cte",
+   "sql": "WITH t AS (SELECT driver_id, SUM(miles) AS m FROM trips GROUP BY 1) SELECT * FROM t WHERE m > 100",
+   "guard_allowed": true,
+   "reason": null,
+   "runs": true
+  },
+  {
+   "category": "cte",
+   "sql": "WITH a AS (SELECT 1 AS x), b AS (SELECT 2 AS x) SELECT * FROM a UNION ALL SELECT * FROM b",
+   "guard_allowed": true,
+   "reason": null,
+   "runs": true
+  },
+  {
+   "category": "window",
+   "sql": "SELECT driver_id, miles, RANK() OVER (PARTITION BY driver_id ORDER BY miles DESC) AS r FROM trips",
+   "guard_allowed": true,
+   "reason": null,
+   "runs": true
+  },
+  {
+   "category": "window",
+   "sql": "SELECT trip_id, SUM(miles) OVER (ORDER BY trip_id) AS running FROM trips",
+   "guard_allowed": true,
+   "reason": null,
+   "runs": true
+  },
+  {
+   "category": "date",
+   "sql": "SELECT date_trunc('month', purchase_date) AS month, SUM(total_cost) AS spend FROM fuel GROUP BY 1 ORDER BY 1",
+   "guard_allowed": true,
+   "reason": null,
+   "runs": true
+  },
+  {
+   "category": "date",
+   "sql": "SELECT EXTRACT(year FROM purchase_date) AS y, COUNT(*) FROM fuel GROUP BY 1",
+   "guard_allowed": true,
+   "reason": null,
+   "runs": true
+  },
+  {
+   "category": "case",
+   "sql": "SELECT CASE WHEN miles > 120 THEN 'long' ELSE 'short' END AS kind, COUNT(*) FROM trips GROUP BY 1",
+   "guard_allowed": true,
+   "reason": null,
+   "runs": true
+  },
+  {
+   "category": "subquery",
+   "sql": "SELECT * FROM trips WHERE miles > (SELECT AVG(miles) FROM trips)",
+   "guard_allowed": true,
+   "reason": null,
+   "runs": true
+  },
+  {
+   "category": "subquery",
+   "sql": "SELECT * FROM (SELECT driver_id, COUNT(*) AS n FROM trips GROUP BY 1) q WHERE n > 1",
+   "guard_allowed": true,
+   "reason": null,
+   "runs": true
+  },
+  {
+   "category": "quoted",
+   "sql": "SELECT \"driver_id\", \"miles\" FROM \"trips\"",
+   "guard_allowed": true,
+   "reason": null,
+   "runs": true
+  },
+  {
+   "category": "lookalike",
+   "sql": "SELECT 'DROP TABLE trips' AS note",
+   "guard_allowed": true,
+   "reason": null,
+   "runs": true
+  },
+  {
+   "category": "lookalike",
+   "sql": "SELECT * FROM drivers WHERE first_name = 'delete'",
+   "guard_allowed": true,
+   "reason": null,
+   "runs": true
+  },
+  {
+   "category": "lookalike",
+   "sql": "SELECT * FROM drivers WHERE first_name LIKE '%update%'",
+   "guard_allowed": true,
+   "reason": null,
+   "runs": true
+  },
+  {
+   "category": "lookalike",
+   "sql": "SELECT miles AS delete_flag, miles AS update_date, miles AS insert_count FROM trips",
+   "guard_allowed": true,
+   "reason": null,
+   "runs": true
+  },
+  {
+   "category": "lookalike",
+   "sql": "SELECT COUNT(*) AS drop_offs FROM trips",
+   "guard_allowed": true,
+   "reason": null,
+   "runs": true
+  },
+  {
+   "category": "lookalike",
+   "sql": "SELECT 1 AS \"create\"",
+   "guard_allowed": true,
+   "reason": null,
+   "runs": true
+  },
+  {
+   "category": "lookalike",
+   "sql": "SELECT 'a;b' AS semi",
+   "guard_allowed": true,
+   "reason": null,
+   "runs": true
+  },
+  {
+   "category": "lookalike",
+   "sql": "SELECT 1 -- DROP TABLE trips",
+   "guard_allowed": true,
+   "reason": null,
+   "runs": true
+  },
+  {
+   "category": "lookalike",
+   "sql": "SELECT /* DELETE FROM trips */ 1",
+   "guard_allowed": true,
+   "reason": null,
+   "runs": true
+  },
+  {
+   "category": "lookalike",
+   "sql": "SELECT * FROM trips WHERE miles BETWEEN 100 AND 200 ORDER BY miles LIMIT 10 OFFSET 5",
+   "guard_allowed": true,
+   "reason": null,
+   "runs": true
+  },
+  {
+   "category": "string-fn",
+   "sql": "SELECT UPPER(first_name), LENGTH(first_name), first_name || '!' FROM drivers",
+   "guard_allowed": true,
+   "reason": null,
+   "runs": true
+  },
+  {
+   "category": "string-fn",
+   "sql": "SELECT regexp_matches(first_name, '^N') FROM drivers",
+   "guard_allowed": true,
+   "reason": null,
+   "runs": true
+  },
+  {
+   "category": "math",
+   "sql": "SELECT ROUND(AVG(miles) / NULLIF(COUNT(*), 0), 2) FROM trips",
+   "guard_allowed": true,
+   "reason": null,
+   "runs": true
+  },
+  {
+   "category": "distinct",
+   "sql": "SELECT DISTINCT driver_id FROM trips ORDER BY 1",
+   "guard_allowed": true,
+   "reason": null,
+   "runs": true
+  },
+  {
+   "category": "having",
+   "sql": "SELECT driver_id FROM trips GROUP BY 1 HAVING COUNT(*) > 1",
+   "guard_allowed": true,
+   "reason": null,
+   "runs": true
+  },
+  {
+   "category": "union",
+   "sql": "SELECT driver_id FROM trips UNION SELECT driver_id FROM drivers",
+   "guard_allowed": true,
+   "reason": null,
+   "runs": true
+  },
+  {
+   "category": "trailing-semicolon",
+   "sql": "SELECT COUNT(*) FROM trips;",
+   "guard_allowed": true,
+   "reason": null,
+   "runs": true
+  }
+ ]
+}

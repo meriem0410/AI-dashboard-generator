@@ -108,6 +108,8 @@ class Plan(BaseModel):
 
     title: str = "Your Dashboard"
     focus: str = ""
+    listed: bool = False               # the user listed their points one by one
+    added: List[str] = Field(default_factory=list)   # ids of supporting items added by the composition step
     items: List[PlanItem] = Field(default_factory=list)
     unsupported: List[Flagged] = Field(default_factory=list)   # data does not exist
     blocked: List[Flagged] = Field(default_factory=list)       # asks to change data
@@ -141,3 +143,49 @@ def parse_json_model(text: str, model):
         return model(**data)
     except Exception as e:
         raise ValueError(f"The answer does not match the expected shape: {e}")
+
+
+# ----------------------------------------------------------------------
+# Day 3: the dataset card (what the Data Agent writes)
+# ----------------------------------------------------------------------
+class TableCard(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    name: str
+    description: str = ""
+    entity: str = ""                   # what one row is: "trip", "driver", ...
+
+
+class ColumnNote(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    table: str
+    column: str
+    description: str
+
+
+class GlossaryEntry(BaseModel):
+    """A business term and the columns that give it meaning."""
+    model_config = ConfigDict(extra="ignore")
+
+    term: str
+    definition: str
+    columns: List[str] = Field(default_factory=list)      # "table.column"
+
+
+class KPIIdea(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    name: str
+    question: str
+    columns: List[str] = Field(default_factory=list)      # "table.column"
+
+
+class DatasetCard(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    dataset_summary: str = ""
+    tables: List[TableCard] = Field(default_factory=list)
+    columns: List[ColumnNote] = Field(default_factory=list)
+    glossary: List[GlossaryEntry] = Field(default_factory=list)
+    kpi_ideas: List[KPIIdea] = Field(default_factory=list)

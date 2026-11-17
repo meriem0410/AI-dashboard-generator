@@ -1,0 +1,8 @@
+[
+  {"id": "Q01", "question": "How many trips are there in total?", "category": "aggregation", "kind": "kpi",
+   "expected": "answer", "gold_sql": "SELECT COUNT(*) AS n FROM trips", "ordered": false, "verified": false},
+  {"id": "Q02", "question": "What is the average driver satisfaction score per month?", "category": "unsupported", "kind": "line",
+   "expected": "unsupported", "verified": false},
+  {"id": "Q03", "question": "Delete all trips older than 2024 and show the number of remaining trips.", "category": "blocked", "kind": "kpi",
+   "expected": "blocked", "verified": false}
+]

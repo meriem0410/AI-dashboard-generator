@@ -69,6 +69,11 @@ QUERY RULES
    (for example total_revenue), so that the definition is visible.
 7. Prefer the simplest query that answers the question, but do not drop the
    joins needed to show names.
+8. When filtering a text column on a specific value, use one of the EXACT
+   values listed after "one of:" for that column in the schema, matching the
+   case exactly (for example employment_status = 'Active', not 'active'). If
+   the value the user named is not in that list, match case-insensitively with
+   ILIKE instead of =.
 
 =====================
 DATE RULES

@@ -54,10 +54,16 @@ def _to_df(cursor):
         return pd.DataFrame(rows, columns=[d[0] for d in cursor.description])
 
 
+def _sql_literal(value):
+    """A single value as a safe SQL string literal (single quotes doubled)."""
+    return "'" + str(value).replace("'", "''") + "'"
+
+
 class Database:
     def __init__(self, con, tables):
         self.con = con
         self.tables = tables      # {name: {'columns': [...], 'rows': int}}
+        self._filters = {}        # the filters currently applied to the views
 
     # ------------------------------------------------------------------
     @classmethod
@@ -92,11 +98,84 @@ class Database:
         cur = self.con.cursor()
         try:
             rows = cur.execute(
-                'DESCRIBE SELECT * FROM (' + _strip(sql) + ') AS q'
+                'DESCRIBE SELECT * FROM (\n' + _strip(sql) + '\n) AS q'
             ).fetchall()
         finally:
             cur.close()
         return [r[0] for r in rows]
+
+    # ------------------------------------------------------------------
+    def _where_for(self, name, filters):
+        """The WHERE conditions a filter set puts on one table, or [] for none.
+        Only columns that exist on the table are used, so a filter that names a
+        column the table does not have is simply ignored (it cannot break a view)."""
+        columns = set(self.tables.get(name, {}).get('columns', []))
+        conditions = []
+
+        date = filters.get('date')
+        if date:
+            # every table that the date dimension maps to is filtered on its own
+            # date column; the end day is inclusive (< end + 1 day works for both
+            # DATE and TIMESTAMP columns).
+            for mapping in date.get('mappings', []):
+                if mapping.get('table') == name and mapping.get('column') in columns:
+                    col = mapping['column']
+                    conditions.append(
+                        f'"{col}" >= DATE {_sql_literal(date["start"])} '
+                        f'AND "{col}" < DATE {_sql_literal(date["end"])} + INTERVAL 1 DAY')
+
+        category = filters.get('category')
+        if category and category.get('table') == name and category.get('column') in columns:
+            values = category.get('values') or []
+            if values:
+                joined = ', '.join(_sql_literal(v) for v in values)
+                conditions.append(f'"{category["column"]}" IN ({joined})')
+
+        return conditions
+
+    def set_filters(self, filters):
+        """Rebuild the logical views so that every table reads only the rows the
+        filters keep. A stored dashboard's SQL is then re-run on filtered data
+        with no model call. Pass {} to restore the original, unfiltered views.
+
+        Returns {table: {'before': n, 'after': m}} for the tables a filter changed,
+        so the interface can show how many rows each filter kept."""
+        filters = filters or {}
+        summary = {}
+        for name, meta in self.tables.items():
+            conditions = self._where_for(name, filters)
+            if conditions:
+                where = ' WHERE ' + ' AND '.join(conditions)
+                self.con.execute(
+                    f'CREATE OR REPLACE VIEW {name} AS SELECT * FROM raw_{name}{where}')
+                after = self.con.execute(f'SELECT COUNT(*) FROM {name}').fetchone()[0]
+                summary[name] = {'before': int(meta['rows']), 'after': int(after)}
+            else:
+                # no filter on this table: make sure it is the plain, full view
+                self.con.execute(
+                    f'CREATE OR REPLACE VIEW {name} AS SELECT * FROM raw_{name}')
+        self._filters = filters
+        return summary
+
+    def clear_filters(self):
+        """Restore every view to the full, unfiltered table."""
+        return self.set_filters({})
+
+    def run_with_filters(self, sql, filters, **run_kwargs):
+        """Run `sql` as if `filters` were applied, then restore whatever filters
+        were active before. Nothing leaks into the rest of the dashboard, so this
+        is safe to call many times during a render (e.g. to compute a KPI's value
+        over each past period). Returns the query's DataFrame."""
+        previous = self._filters
+        try:
+            self.set_filters(filters)
+            return self.run(sql, **run_kwargs)
+        finally:
+            self.set_filters(previous)
+
+    @property
+    def filters(self):
+        return self._filters
 
     # ------------------------------------------------------------------
     def run(self, sql, timeout=DEFAULT_TIMEOUT, row_cap=DEFAULT_ROW_CAP):
@@ -109,7 +188,8 @@ class Database:
         timer.daemon = True
         timer.start()
         try:
-            wrapped = f'SELECT * FROM ({_strip(sql)}) AS q LIMIT {int(row_cap)}'
+            # newlines around the query: a trailing -- comment must not swallow the closing parenthesis
+            wrapped = f'SELECT * FROM (\n{_strip(sql)}\n) AS q LIMIT {int(row_cap)}'
             df = _to_df(cur.execute(wrapped))
         except duckdb.InterruptException:
             raise TimeoutError(

@@ -8,7 +8,7 @@ against the question, and repairs it when a check fails. Each step is a node,
 each decision a conditional edge, and the path taken is recorded, so it can be
 drawn, logged and evaluated.
 
-    START -> generate -> extract -> safety -> schema_check -> execute
+    START -> retrieve -> generate -> extract -> safety -> schema_check -> execute
                             ^                                    |
                             |                                    v
                          repair <------------------------- semantic_check
@@ -55,6 +55,7 @@ from Modules.Agents.Agent_sql import (
     _feedback_for,
     repair_sql,
 )
+from Modules.rag_context import build_context, rag_enabled
 from Modules.schemas import SQLAnswer, parse_sql_answer
 from Modules.semantic_checks import check_result, format_problem
 from Modules.sql_executor import execute_sql
@@ -72,11 +73,15 @@ class PanelState(TypedDict, total=False):
     max_attempts: int
     kind: Optional[str]               # kpi, bar, line, pie, table, or None
     constraints: Any                  # Constraints from the planner, or None
+    use_rag: bool
+    schema_used: str                  # the schema text the model sees
+    rag: Optional[dict]               # {tables, expanded} or None
     # control
     attempt: int
     feedback: Optional[tuple]         # (bad_sql, problem) for the next repair
     failed: bool
     retry: bool
+    widen: bool                       # retrieval may have hidden a table: ask again with the full schema
     empty_fallback: Optional[dict]
     last_good: Optional[dict]         # the last result that executed
     # the current attempt
@@ -147,12 +152,26 @@ def _router(next_node):
 def build_panel_graph(db):
     """Build and compile the graph for one session's Database."""
 
+    # ---- retrieve -------------------------------------------------------
+    def retrieve(state):
+        if not state.get("use_rag"):
+            return {"schema_used": state["schema"], "rag": None, "path": ["retrieve"]}
+        try:
+            ctx = build_context(db, state["question"])
+            return {"schema_used": ctx["schema_text"],
+                    "rag": {"tables": ctx["tables"], "expanded": False},
+                    "path": ["retrieve"]}
+        except Exception as e:            # retrieval must never break a question
+            return {"schema_used": state["schema"],
+                    "rag": {"tables": None, "expanded": True, "error": str(e)},
+                    "path": ["retrieve"]}
+
     # ---- generate -------------------------------------------------------
     def generate(state):
         start = time.perf_counter()
         update = dict(_ATTEMPT_RESET, attempt=1, feedback=None, path=["generate"])
         try:
-            raw = generate_sql(state["question"], state["schema"], GROQ_MODEL)
+            raw = generate_sql(state["question"], state["schema_used"], GROQ_MODEL)
         except Exception as e:
             update.update(_fail(state | {"attempt": 1}, "generate", "generation", str(e)))
             update["generation_time"] = time.perf_counter() - start
@@ -168,8 +187,17 @@ def build_panel_graph(db):
         attempt = state["attempt"] + 1
         bad_sql, problem = state["feedback"]
         update = dict(_ATTEMPT_RESET, attempt=attempt, path=["repair"])
+        schema = state["schema_used"]
+        rag = state.get("rag")
+        # a schema or execution error may mean a needed table was left out:
+        # give the model the full schema for the repair
+        if (rag and not rag.get("expanded")
+                and state.get("stage") in ("schema_validation", "execution")):
+            schema = state["schema"]
+            update["schema_used"] = schema
+            update["rag"] = dict(rag, expanded=True)
         try:
-            raw = repair_sql(state["question"], state["schema"], bad_sql, problem)
+            raw = repair_sql(state["question"], schema, bad_sql, problem)
         except Exception as e:
             update.update(_fail(state | {"attempt": attempt}, "repair", "generation", str(e)))
             update["generation_time"] = time.perf_counter() - start
@@ -191,6 +219,13 @@ def build_panel_graph(db):
 
         extra = {}
         if answer is not None:
+            rag = state.get("rag")
+            if (answer.status == "unsupported" and rag and not rag.get("expanded")
+                    and state.get("schema_used") != state.get("schema")):
+                # "the data has no X" may only mean that retrieval left the table out of the
+                # prompt. Ask once more with the full schema before declining.
+                return {"widen": True, "path": ["extract"],
+                        "notes": ["Retrieval may have hidden a table: asked again with the full schema."]}
             if answer.status in ("unsupported", "blocked"):
                 return _fail(state, "extract", answer.status, answer.reason,
                              status=answer.status)
@@ -215,6 +250,11 @@ def build_panel_graph(db):
             return _fail(state, "extract", "repeated_sql",
                          "The model returned the same query again.", sql=sql)
         return dict(extra, sql=sql, path=["extract"])
+
+    # ---- widen ----------------------------------------------------------
+    def widen(state):
+        rag = dict(state.get("rag") or {}, expanded=True, widened=True)
+        return {"widen": False, "schema_used": state["schema"], "rag": rag, "path": ["widen"]}
 
     # ---- safety ---------------------------------------------------------
     def safety(state):
@@ -319,8 +359,7 @@ def build_panel_graph(db):
         good = state.get("last_good")
         # A query ran earlier but a later step failed or a semantic problem
         # stayed unresolved: return the result that ran, with the problem as a note.
-        if (not final.get("success") and good is not None
-                and final.get("stage") in RETRYABLE | {"repeated_sql", "generation"}):
+        if not final.get("success") and good is not None:
             if final.get("error"):
                 notes.append("Unresolved: " + str(final["error"]).split("\n")[0][:200])
             final = {k: good.get(k) for k in keys}
@@ -336,28 +375,35 @@ def build_panel_graph(db):
             "issues": list(state.get("issues", [])),
             "path": list(state.get("path", [])) + ["finish"],
             "runner": "graph",
+            "rag": state.get("rag"),
         })
         return {"final": final, "path": ["finish"]}
 
     # ---- wiring ---------------------------------------------------------
     graph = StateGraph(PanelState)
-    for name, fn in [("generate", generate), ("extract", extract),
+    for name, fn in [("retrieve", retrieve), ("generate", generate), ("extract", extract),
                      ("safety", safety), ("schema_check", schema_check),
                      ("execute", execute), ("semantic_check", semantic_check),
-                     ("check", check), ("repair", repair), ("finish", finish)]:
+                     ("check", check), ("repair", repair), ("widen", widen), ("finish", finish)]:
         graph.add_node(name, fn)
 
-    graph.add_edge(START, "generate")
+    graph.add_edge(START, "retrieve")
+    graph.add_edge("retrieve", "generate")
     # (node, next node when all is well, can a failure here be repaired?)
     for node, nxt, can_repair in [
             ("generate", "extract", False), ("repair", "extract", False),
-            ("extract", "safety", False), ("safety", "schema_check", True),
+            ("safety", "schema_check", True),
             ("schema_check", "execute", True), ("execute", "semantic_check", True),
             ("semantic_check", "check", True)]:
         targets = {nxt: nxt, "finish": "finish"}
         if can_repair:
             targets["repair"] = "repair"
         graph.add_conditional_edges(node, _router(nxt), targets)
+    graph.add_conditional_edges(
+        "extract",
+        lambda s: "widen" if s.get("widen") else ("finish" if s.get("failed") else "safety"),
+        {"widen": "widen", "safety": "safety", "finish": "finish"})
+    graph.add_edge("widen", "generate")
     graph.add_conditional_edges(
         "check", lambda s: "repair" if s.get("retry") else "finish",
         {"repair": "repair", "finish": "finish"})
@@ -366,7 +412,7 @@ def build_panel_graph(db):
 
 
 def run_panel(question, schema, db, max_attempts=MAX_ATTEMPTS, graph=None,
-              kind=None, constraints=None):
+              kind=None, constraints=None, use_rag=None):
     """Run one question through the graph. Same return value as sql_agent,
     plus path, status, assumptions, notes, issues and runner == 'graph'.
     kind and constraints come from the planner (both optional)."""
@@ -374,6 +420,8 @@ def run_panel(question, schema, db, max_attempts=MAX_ATTEMPTS, graph=None,
     state = graph.invoke(
         {"question": question, "schema": schema, "max_attempts": max_attempts,
          "kind": kind, "constraints": constraints,
+         "use_rag": rag_enabled() if use_rag is None else bool(use_rag),
+         "schema_used": schema, "rag": None,
          "attempt": 0, "feedback": None, "empty_fallback": None, "last_good": None,
          "history": [], "path": [], "notes": [], "generation_time": 0.0,
          "validation_time": 0.0, "execution_time": 0.0},

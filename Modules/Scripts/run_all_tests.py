@@ -18,6 +18,15 @@ SCRIPTS = [
     "test_llm_cache.py",
     "test_semantic_checks.py",
     "test_day2.py",
+    "test_composition.py",
+    "test_knowledge_base.py",
+    "test_data_agent.py",
+    "test_rag_context.py",
+    "test_library.py",
+    "test_app_services.py",
+    "test_eval_metrics.py",
+    "test_guard_eval.py",
+    "test_eval_runner.py", "test_gold_logistics.py", "test_retrieval_eval.py", "test_engine_filters.py", "test_dashboard_filters_scope.py", "test_kpi_headline.py", "test_kpi_trends.py", "test_dashboard_ops.py", "test_followup.py", "test_schema_values.py", "test_insights.py", "test_export_html.py", "test_dataset_overview.py", "test_eval_harness.py", "test_visual_fixes.py", "test_export_xlsx.py",
 ]
 
 bad = 0

@@ -124,7 +124,7 @@ def build_schema(profile_dict, data=None, save=True):
     """Returns the schema string injected into the SQL prompt.
     If `data` is given, a DATA COVERAGE section is placed FIRST so it is
     never cut off when the schema is truncated."""
-    schema = build_llm_schema(profile_dict)
+    schema = build_llm_schema(profile_dict, data)
     if data is not None:
         schema = date_coverage(data) + schema
     if save:
